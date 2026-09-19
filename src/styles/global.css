@@ -1,0 +1,197 @@
+@import 'tailwindcss';
+@import './tokens.css';
+
+/*
+ * Base layer. Tailwind v4 reads the @theme block below and generates utilities from it, so
+ * `bg-surface`, `text-ink-muted`, `border-border` etc. resolve to the tokens above and
+ * re-theme automatically when [data-theme] flips.
+ */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+
+  --color-navy: var(--navy);
+  --color-navy-2: var(--navy-2);
+  --color-navy-ink: var(--navy-ink);
+  --color-navy-ink-muted: var(--navy-ink-muted);
+  --color-navy-border: var(--navy-border);
+
+  --color-red: var(--red);
+  --color-red-tint: var(--red-tint);
+  --color-red-line: var(--red-line);
+
+  --color-blue: var(--blue);
+  --color-blue-tint: var(--blue-tint);
+  --color-blue-line: var(--blue-line);
+
+  --color-teal: var(--teal);
+  --color-teal-tint: var(--teal-tint);
+  --color-teal-line: var(--teal-line);
+
+  --color-gray: var(--gray);
+  --color-gray-tint: var(--gray-tint);
+  --color-gray-line: var(--gray-line);
+
+  /* Semantic alias for "not detected". Prefer `miss` in components — the neutral gray is a
+     research outcome, and naming it after that outcome keeps it from drifting into an error hue. */
+  --color-miss: var(--gray);
+  --color-miss-tint: var(--gray-tint);
+  --color-miss-line: var(--gray-line);
+
+  --color-amber: var(--amber);
+  --color-amber-tint: var(--amber-tint);
+  --color-amber-line: var(--amber-line);
+
+  --color-focus: var(--focus);
+
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-code);
+
+  --radius-sm: var(--r-sm);
+  --radius-DEFAULT: var(--r);
+  --radius-lg: var(--r-lg);
+}
+
+* {
+  border-color: var(--border);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-regular);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/*
+ * Type scale as utilities so pages compose hierarchy rather than inventing sizes.
+ * Uppercase is deliberately absent — hierarchy is size and weight, per the redesign brief.
+ */
+.t-page {
+  font-size: var(--fs-page);
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.t-section {
+  font-size: var(--fs-section);
+  font-weight: var(--fw-semibold);
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+.t-card {
+  font-size: var(--fs-card);
+  font-weight: var(--fw-semibold);
+  line-height: 1.3;
+}
+
+.t-body {
+  font-size: var(--fs-body);
+  line-height: 1.55;
+}
+
+.t-secondary {
+  font-size: var(--fs-secondary);
+  line-height: 1.5;
+}
+
+.t-metric {
+  font-size: var(--fs-metric);
+  font-weight: var(--fw-semibold);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Technical values only: IDs, API paths, timestamps, raw output. Never prose. */
+.t-technical {
+  font-family: var(--font-code);
+  font-size: var(--fs-technical);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Numbers, IDs and logs line up in columns instead of jittering. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* One visible focus treatment, applied consistently. Mouse users never see it. */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+  border-radius: var(--r-sm);
+}
+
+::selection {
+  background: var(--blue-tint);
+  color: var(--ink);
+}
+
+/* Thin scrollbars so dense panels don't get chunky native chrome. */
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+.scroll-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+.scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@keyframes te-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.pulse {
+  animation: te-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes te-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

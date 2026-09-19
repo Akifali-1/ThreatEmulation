@@ -1,0 +1,133 @@
+/*
+ * Design tokens — the single source of truth for colour, type, space, radius.
+ *
+ * Components must never hardcode a colour; they reference these names. Dark mode is the
+ * same token set re-pointed under [data-theme="dark"], so every component themes for free.
+ *
+ * Palette intent: warm off-white paper, white surfaces, hairline borders, deep navy chrome.
+ * Red = Red Agent (attacker), blue = Blue Agent (detector). Detected is teal; a miss is a
+ * neutral gray because it is a research outcome, not an error.
+ */
+
+:root {
+  /* Surfaces */
+  --bg: #f6f5f1;
+  --surface: #ffffff;
+  --surface-2: #fbfaf7;
+  --surface-3: #f2f0ea;
+
+  /* Lines */
+  --border: #e4e1d9;
+  --border-strong: #cfcbc0;
+
+  /* Text */
+  --ink: #16181d;
+  --ink-muted: #5a6068;
+  --ink-faint: #8b9099;
+
+  /* Chrome */
+  --navy: #10263a;
+  --navy-2: #0b1b2b;
+  --navy-ink: #e8edf2;
+  --navy-ink-muted: #93a4b5;
+  --navy-border: #1e364d;
+
+  /* Agent + outcome accents */
+  --red: #b4432f;
+  --red-tint: #fbeae7;
+  --red-line: #eccfc9;
+
+  --blue: #2f5d8a;
+  --blue-tint: #e9f0f7;
+  --blue-line: #cddceb;
+
+  --teal: #0f766e;
+  --teal-tint: #e4f2f0;
+  --teal-line: #c2e0dc;
+
+  --gray: #6b7280;
+  --gray-tint: #f0f0ee;
+  --gray-line: #dcdcd8;
+
+  --amber: #854d0e;
+  --amber-tint: #fbf3e2;
+  --amber-line: #e8d7ab;
+
+  /* Focus */
+  --focus: #2f5d8a;
+
+  /* Overlay */
+  --scrim: rgba(22, 24, 29, 0.4);
+
+  /* Radius */
+  --r-sm: 4px;
+  --r: 6px;
+  --r-lg: 8px;
+
+  /* Type. Inter for interface text; mono is reserved for technical values only. */
+  --font-ui: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-code: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Type scale. Hierarchy comes from size and weight, not from uppercase or colour. */
+  --fs-page: 30px;
+  --fs-section: 19px;
+  --fs-card: 15px;
+  --fs-body: 14px;
+  --fs-secondary: 12.5px;
+  --fs-metric: 32px;
+  --fs-technical: 12.5px;
+
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+
+  color-scheme: light;
+}
+
+[data-theme='dark'] {
+  --bg: #101319;
+  --surface: #171b22;
+  --surface-2: #1d222a;
+  --surface-3: #232932;
+
+  --border: #2a303a;
+  --border-strong: #3a424e;
+
+  --ink: #e9ebee;
+  --ink-muted: #a2a9b4;
+  --ink-faint: #767d88;
+
+  --navy: #0c1d2e;
+  --navy-2: #081625;
+  --navy-ink: #e8edf2;
+  --navy-ink-muted: #8f9fb0;
+  --navy-border: #1b3348;
+
+  /* Accents are lightened for contrast against #171b22 rather than inverted. */
+  --red: #d9634c;
+  --red-tint: #2a1a16;
+  --red-line: #4a2a23;
+
+  --blue: #6c9cc9;
+  --blue-tint: #16222e;
+  --blue-line: #27394c;
+
+  --teal: #2aa79b;
+  --teal-tint: #10241f;
+  --teal-line: #1d3d36;
+
+  --gray: #9aa1ac;
+  --gray-tint: #20242b;
+  --gray-line: #313741;
+
+  --amber: #d69e2e;
+  --amber-tint: #2a2113;
+  --amber-line: #4a3a1c;
+
+  --focus: #6c9cc9;
+
+  --scrim: rgba(0, 0, 0, 0.6);
+
+  color-scheme: dark;
+}
