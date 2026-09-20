@@ -1,15 +1,15 @@
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router'
+import { useNavigate } from 'react-router'
 
 import { PageHeader } from '../components/layout/PageHeader'
-import { InsightList } from '../components/ui/Insight'
+import { NumberedInsightList } from '../components/ui/Insight'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
-import { Card } from '../components/ui/Card'
+import { CardHeading } from '../components/ui/Kpi'
 import { Disclosure, DisclosureText } from '../components/ui/Disclosure'
 import { EmptyState } from '../components/ui/EmptyState'
 import { ToggleGroup } from '../components/ui/Field'
-import { SkeletonRows } from '../components/ui/Skeleton'
+import { Table, type Column, type SortState } from '../components/ui/Table'
 import { useBlueProposals } from '../hooks/useBlueProposals'
 import { useTrialsData } from '../hooks/useTrialsData'
 import { formatCount, formatPct } from '../lib/format'
@@ -19,73 +19,156 @@ import { describeEps, type Insight } from '../lib/insights'
 import { describeTechnique } from '../lib/techniques'
 import type { Mode } from '../lib/api/types'
 
+interface GapRow {
+  key: string
+  name: string
+  mitreId: string
+  n: number
+  tpr: number | null
+  trendHeadline: string
+  trendStrength: string
+  proposalStatus: string | null
+}
+
 /**
  * Where detection is weakest.
  *
- * Ranked by detection rate, weakest first. Everything on this page is derived from the trial
- * list and the proposal queue — no new metric, no score invented for the purpose. The ranking
- * is a sort, not a judgement.
+ * Ranked weakest-first. Everything here is derived from the trial list and the proposal queue —
+ * no new metric, and the ordering is a sort rather than a judgement.
  */
 export default function DetectionGaps() {
   const [mode, setMode] = useState<Mode>('agentic')
+  const [sort, setSort] = useState<SortState>({ key: 'tpr', dir: 'asc' })
   const { trials, loading, error, refetch } = useTrialsData(mode)
   const proposals = useBlueProposals()
+  const navigate = useNavigate()
 
-  const rows = useMemo(() => {
-    return rollupByTechnique(trials)
-      .map((rollup) => {
-        const eps = computeEps(rollup.trials)
+  const proposalByTechnique = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const proposal of proposals.proposals) map.set(proposal.technique, proposal.status)
+    return map
+  }, [proposals.proposals])
+
+  const rows = useMemo<GapRow[]>(
+    () =>
+      rollupByTechnique(trials).map((rollup) => {
+        const meta = describeTechnique(rollup.technique)
+        const reading = describeEps(computeEps(rollup.trials))
         return {
-          technique: rollup.technique,
-          meta: describeTechnique(rollup.technique),
+          key: rollup.technique,
+          name: meta.mapped ? meta.name : rollup.technique,
+          mitreId: meta.mapped ? meta.mitreId : 'unmapped',
           n: rollup.n,
-          detected: rollup.detected,
           tpr: rollup.tpr,
-          medianTtd: rollup.medianTtd,
-          eps,
-          reading: describeEps(eps),
+          trendHeadline: reading ? reading.headline : 'Not enough trials to read a trend',
+          trendStrength: reading ? reading.strength : `${rollup.n} recorded`,
+          proposalStatus: proposalByTechnique.get(rollup.technique) ?? null,
         }
-      })
-      .sort((a, b) => (a.tpr ?? 1) - (b.tpr ?? 1))
-  }, [trials])
+      }),
+    [trials, proposalByTechnique],
+  )
+
+  const sorted = useMemo(() => {
+    const factor = sort.dir === 'asc' ? 1 : -1
+    return [...rows].sort((a, b) => {
+      if (sort.key === 'name') return a.name.localeCompare(b.name) * factor
+      if (sort.key === 'n') return (a.n - b.n) * factor
+      // Nulls always sort last regardless of direction.
+      if (a.tpr === null) return 1
+      if (b.tpr === null) return -1
+      return (a.tpr - b.tpr) * factor
+    })
+  }, [rows, sort])
 
   const headline = useMemo<Insight[]>(() => {
-    if (rows.length === 0) return []
-
-    const weakest = rows[0]
+    if (sorted.length === 0) return []
     const insights: Insight[] = []
 
-    if (weakest.tpr !== null) {
+    const weakest = [...sorted].filter((r) => r.tpr !== null)[0]
+    if (weakest?.tpr != null) {
       insights.push({
         id: 'weakest',
         tone: weakest.tpr < 0.5 ? 'risk' : weakest.tpr < 0.7 ? 'attention' : 'neutral',
-        title: `${weakest.meta.mapped ? weakest.meta.name : weakest.technique} is detected least often`,
+        title: `${weakest.name} is detected least often`,
         detail: `${formatPct(weakest.tpr)} detection across ${weakest.n} trials`,
       })
     }
 
-    const uncovered = rows.filter(
-      (row) => row.reading?.tone === 'attention' && row.n >= 4,
-    )
-    if (uncovered.length > 0) {
+    const declining = rows.filter((r) => r.trendHeadline === 'Detection declined over time' && r.n >= 4)
+    if (declining.length > 0) {
       insights.push({
         id: 'declining',
         tone: 'attention',
-        title: `${uncovered.length} technique${uncovered.length === 1 ? '' : 's'} declining over time`,
-        detail: uncovered.map((row) => row.meta.name ?? row.technique).join(', '),
+        title: `${declining.length} technique${declining.length === 1 ? '' : 's'} declining over time`,
+        detail: declining.map((r) => r.name).join(', '),
       })
     }
 
     return insights
-  }, [rows])
+  }, [sorted, rows])
 
-  // A proposal is only "covering" a technique if one exists; the queue is independent of the
-  // mode toggle because proposals are generated from whatever the Blue Agent last analysed.
-  const proposalByTechnique = useMemo(() => {
-    const map = new Map<string, { status: string }>()
-    for (const proposal of proposals.proposals) map.set(proposal.technique, proposal)
-    return map
-  }, [proposals.proposals])
+  const columns: Column<GapRow>[] = [
+    {
+      key: 'name',
+      header: 'Technique',
+      sortValue: (row) => row.name,
+      cell: (row) => (
+        <span className="flex flex-col">
+          <span className="t-body font-medium text-ink">{row.name}</span>
+          <span className="t-technical mt-0.5 text-ink-faint">{row.mitreId}</span>
+        </span>
+      ),
+    },
+    {
+      key: 'tpr',
+      header: 'Detection rate',
+      width: 'w-[168px]',
+      sortValue: (row) => row.tpr ?? Number.POSITIVE_INFINITY,
+      cell: (row) => {
+        const rate = row.tpr
+        const tone =
+          rate === null ? 'text-ink-muted' : rate < 0.5 ? 'text-red' : rate < 0.7 ? 'text-amber' : 'text-ink'
+        return (
+          <span className="flex flex-col">
+            <span className={`t-metric text-[24px] ${tone}`}>
+              {rate === null ? '—' : formatPct(rate, 0)}
+            </span>
+            <span className="t-secondary text-ink-muted">
+              detection · {formatCount(row.n)} trials
+            </span>
+          </span>
+        )
+      },
+    },
+    {
+      key: 'trend',
+      header: 'Trend',
+      width: 'w-[240px]',
+      cell: (row) => (
+        <span className="flex flex-col">
+          <span className="t-secondary text-ink">{row.trendHeadline}</span>
+          <span className="t-secondary mt-0.5 text-ink-muted">{row.trendStrength}</span>
+        </span>
+      ),
+    },
+    {
+      key: 'action',
+      header: 'Action',
+      width: 'w-[136px]',
+      cell: (row) =>
+        row.proposalStatus ? (
+          <Badge tone={row.proposalStatus === 'pending_approval' ? 'pending' : 'neutral'}>
+            {row.proposalStatus === 'pending_approval'
+              ? 'Rule proposed'
+              : row.proposalStatus === 'approved'
+                ? 'Rule approved'
+                : 'Rule rejected'}
+          </Badge>
+        ) : (
+          <Badge tone="neutral">No proposal</Badge>
+        ),
+    },
+  ]
 
   return (
     <>
@@ -105,109 +188,71 @@ export default function DetectionGaps() {
         }
       />
 
-      <div className="space-y-6 px-6 pb-10 lg:px-8">
+      <div className="space-y-6 px-6 pb-12 lg:px-8">
         {error ? (
-          <Card variant="card" title="Could not load trials">
-            <EmptyState title="Backend unreachable" detail={error} action={<Button size="sm" onClick={refetch}>Retry</Button>} />
-          </Card>
+          <div className="rounded-lg border border-border bg-surface">
+            <EmptyState
+              title="Backend unreachable"
+              detail={error}
+              action={
+                <Button size="sm" onClick={refetch}>
+                  Retry
+                </Button>
+              }
+            />
+          </div>
         ) : (
           <>
             {headline.length > 0 && (
-              <Card title="What stands out">
-                <InsightList insights={headline} />
-              </Card>
+              <section className="rounded-lg border border-border bg-surface-2 p-5">
+                <CardHeading title="What stands out" />
+                <div className="mt-4">
+                  <NumberedInsightList insights={headline} />
+                </div>
+              </section>
             )}
 
-            <Card>
-              {loading ? (
-                <SkeletonRows rows={6} columns={4} />
-              ) : rows.length === 0 ? (
-                <EmptyState
-                  title="No trials recorded for this mode"
-                  detail="Run a batch to establish detection coverage."
+            <section className="rounded-lg border border-border bg-surface">
+              <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
+                <CardHeading
+                  title="All techniques"
+                  subtitle={`${formatCount(sorted.length)} techniques · ${formatCount(trials.length)} trials in this mode`}
                 />
-              ) : (
-                <ul className="divide-y divide-border">
-                  {rows.map((row) => {
-                    const proposal = proposalByTechnique.get(row.technique)
-                    const rate = row.tpr ?? 0
+              </header>
 
-                    return (
-                      <li key={row.technique}>
-                        <Link
-                          to={`/techniques/${encodeURIComponent(row.technique)}`}
-                          className="flex flex-wrap items-center gap-x-5 gap-y-2 py-3.5 transition-colors hover:bg-surface-2"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <p className="t-card text-ink">
-                              {row.meta.mapped ? row.meta.name : row.technique}
-                            </p>
-                            <p className="t-technical mt-0.5 text-ink-faint">
-                              {row.meta.mapped ? row.meta.mitreId : 'unmapped'}
-                            </p>
-                          </div>
-
-                          <div className="w-28 shrink-0 text-right">
-                            <p
-                              className={`t-metric text-[20px] ${
-                                rate < 0.5 ? 'text-red' : rate < 0.7 ? 'text-amber' : 'text-ink'
-                              }`}
-                            >
-                              {formatPct(row.tpr, 0)}
-                            </p>
-                            <p className="t-secondary text-ink-muted">detection</p>
-                          </div>
-
-                          <div className="w-48 shrink-0">
-                            <p className="t-secondary text-ink">
-                              {row.reading ? row.reading.headline : 'Not enough trials'}
-                            </p>
-                            <p className="t-secondary text-ink-muted">
-                              {row.reading
-                                ? row.reading.strength
-                                : `${row.n} trial${row.n === 1 ? '' : 's'} recorded`}
-                            </p>
-                          </div>
-
-                          <div className="w-32 shrink-0">
-                            {proposal ? (
-                              <Badge tone={proposal.status === 'pending_approval' ? 'pending' : 'neutral'}>
-                                {proposal.status === 'pending_approval'
-                                  ? 'Rule proposed'
-                                  : proposal.status === 'approved'
-                                    ? 'Rule approved'
-                                    : 'Rule rejected'}
-                              </Badge>
-                            ) : (
-                              <span className="t-secondary text-ink-faint">No proposal</span>
-                            )}
-                          </div>
-                        </Link>
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
-            </Card>
+              <Table<GapRow>
+                columns={columns}
+                rows={sorted}
+                rowKey={(row) => row.key}
+                sort={sort}
+                onSortChange={setSort}
+                onRowClick={(row) => navigate(`/techniques/${encodeURIComponent(row.key)}`)}
+                loading={loading}
+                skeletonRows={6}
+                empty={
+                  <EmptyState
+                    title="No trials recorded for this mode"
+                    detail="Run a batch to establish detection coverage."
+                  />
+                }
+                className="px-2"
+              />
+            </section>
 
             <Disclosure summary="How this ranking is calculated">
               <DisclosureText>
                 Techniques are sorted by detection rate, lowest first. Detection rate is the share
                 of that technique's trials in which Wazuh raised at least one alert. Trials are
                 never excluded — a technique with three trials is ranked alongside one with thirty,
-                so the trial count is shown on every row and a technique with fewer than four trials
-                is marked as having too little data to read a trend.
+                so the trial count is shown on every row.
               </DisclosureText>
               <DisclosureText>
-                The direction column uses the same early-versus-late comparison as everywhere else
-                in this dashboard. A technique can have a high overall detection rate and still be
-                declining, which is why both are shown.
+                The trend column uses the same chronological early-versus-late comparison as
+                everywhere else in this dashboard. A technique can have a high overall detection
+                rate and still be declining, which is why both are shown. With fewer than four
+                trials the comparison is not meaningful and reads as such.
               </DisclosureText>
             </Disclosure>
-
-            <p className="t-secondary text-ink-faint">
-              {formatCount(rows.length)} techniques · {formatCount(trials.length)} trials in this mode
-            </p>
           </>
         )}
       </div>

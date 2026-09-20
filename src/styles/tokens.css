@@ -23,7 +23,9 @@
   /* Text */
   --ink: #16181d;
   --ink-muted: #5a6068;
-  --ink-faint: #8b9099;
+  /* Darkened from #8b9099, which measured 2.94:1 on --bg — just under the 3:1 floor for
+     non-essential text. Now 3.14:1 on the page and 3.43:1 on a card. */
+  --ink-faint: #868b94;
 
   /* Chrome */
   --navy: #10263a;
@@ -37,6 +39,18 @@
   --red-tint: #fbeae7;
   --red-line: #eccfc9;
 
+  /*
+   * Series palette — used ONLY for chart marks and their legends.
+   *
+   * Kept separate from the status colours above so a red bar can never be misread as an
+   * error. Agentic sits at a muted brick rather than the signal red used for failures, and
+   * the static baseline is a slate rather than the "not detected" grey, so the two palettes
+   * stay distinguishable even in a screenshot with no legend.
+   */
+  --series-agentic: #9e4b3c;
+  --series-static: #6e7883;
+  --series-measure: #4a6b8a;
+
   --blue: #2f5d8a;
   --blue-tint: #e9f0f7;
   --blue-line: #cddceb;
@@ -45,7 +59,7 @@
   --teal-tint: #e4f2f0;
   --teal-line: #c2e0dc;
 
-  --gray: #6b7280;
+  --gray: #5d636b;
   --gray-tint: #f0f0ee;
   --gray-line: #dcdcd8;
 
@@ -108,6 +122,11 @@
   --red: #d9634c;
   --red-tint: #2a1a16;
   --red-line: #4a2a23;
+
+  /* Series colours lift in dark mode so chart marks stay legible on the darker surface. */
+  --series-agentic: #c97a66;
+  --series-static: #98a2ac;
+  --series-measure: #7fa3c4;
 
   --blue: #6c9cc9;
   --blue-tint: #16222e;

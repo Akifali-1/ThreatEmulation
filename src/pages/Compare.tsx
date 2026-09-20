@@ -32,7 +32,7 @@ import { ALPHA, effectMagnitude, formatP, mannWhitneyU } from '../lib/metrics/ma
 import { aggregateTrials, rollupByTechnique } from '../lib/metrics/tpr'
 import { compareTechniques, describeTechnique } from '../lib/techniques'
 
-const SERIES = { agentic: 'var(--red)', static: 'var(--gray)' } as const
+const SERIES = { agentic: 'var(--series-agentic)', static: 'var(--series-static)' } as const
 
 /**
  * Agentic against the static baseline.

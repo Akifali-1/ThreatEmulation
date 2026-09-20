@@ -15,8 +15,14 @@ export interface TrendBucket {
   startedAt: number
 }
 
-/** Which grouping the data actually supports. Stated on the page so the chart is unambiguous. */
-export type TrendRule = 'batch' | 'day'
+/**
+ * Which grouping the data actually supports. Stated on the page so the chart is unambiguous.
+ *
+ * `mixed` is the normal state during a migration: trials recorded after batch_id was added
+ * carry one, older trials do not. Those two populations are bucketed differently rather than
+ * one silently winning.
+ */
+export type TrendRule = 'batch' | 'day' | 'mixed'
 
 export interface TrendResult {
   buckets: TrendBucket[]
@@ -44,28 +50,38 @@ function dayLabel(date: Date): string {
  * with 0% detection, and plotting it as one would misstate the result.
  */
 export function trendBuckets(trials: Trial[]): TrendResult {
-  const hasBatchIds = trials.some((trial) => trial.batch_id != null && trial.batch_id !== '')
-  const rule: TrendRule = hasBatchIds ? 'batch' : 'day'
+  let sawBatch = false
+  let sawDay = false
 
-  const grouped = new Map<string, { trials: Trial[]; startedAt: number; full: string; label: string }>()
+  const grouped = new Map<
+    string,
+    { trials: Trial[]; startedAt: number; full: string; label: string; isBatch: boolean }
+  >()
 
   for (const trial of trials) {
     const date = new Date(trial.start_time)
     if (Number.isNaN(date.getTime())) continue
     const startedAt = date.getTime()
 
+    // Per-trial, not per-dataset: a trial without a batch_id falls back to its day even when
+    // other trials in the same response have one.
+    const batchId =
+      typeof trial.batch_id === 'string' && trial.batch_id !== '' ? trial.batch_id : null
+
     let key: string
     let label: string
     let full: string
 
-    if (rule === 'batch') {
-      const batchId = String(trial.batch_id)
-      key = batchId
-      full = `Batch ${batchId}`
-      // Batch ids are opaque; a short suffix is enough to tell adjacent runs apart on an axis.
-      label = batchId.length > 10 ? `…${batchId.slice(-8)}` : batchId
+    if (batchId) {
+      sawBatch = true
+      key = `batch:${batchId}`
+      full = `Run ${batchId}`
+      // Batch ids are opaque; the tooltip carries the real value, the axis just needs to
+      // distinguish neighbouring runs.
+      label = ''
     } else {
-      key = localDayKey(date)
+      sawDay = true
+      key = `day:${localDayKey(date)}`
       label = dayLabel(date)
       full = date.toLocaleDateString(undefined, {
         weekday: 'short',
@@ -80,11 +96,11 @@ export function trendBuckets(trials: Trial[]): TrendResult {
       existing.trials.push(trial)
       existing.startedAt = Math.min(existing.startedAt, startedAt)
     } else {
-      grouped.set(key, { trials: [trial], startedAt, full, label })
+      grouped.set(key, { trials: [trial], startedAt, full, label, isBatch: batchId !== null })
     }
   }
 
-  const buckets = [...grouped.entries()]
+  const ordered = [...grouped.entries()]
     .map(([key, group]) => {
       const detected = group.trials.filter((trial) => trial.detected).length
       const delays = group.trials
@@ -101,17 +117,30 @@ export function trendBuckets(trials: Trial[]): TrendResult {
         meanDelay:
           delays.length > 0 ? delays.reduce((sum, value) => sum + value, 0) / delays.length : null,
         startedAt: group.startedAt,
+        isBatch: group.isBatch,
       }
     })
     // Chronological, not lexicographic: batch ids need not sort the way runs happened.
     .sort((a, b) => a.startedAt - b.startedAt)
 
+  // Number the batch buckets in the order they actually ran, which reads far better on an
+  // axis than an opaque id fragment.
+  let runNumber = 0
+  const buckets: TrendBucket[] = ordered.map((bucket) => {
+    if (!bucket.isBatch) return bucket
+    runNumber += 1
+    return { ...bucket, label: `Run ${runNumber}` }
+  })
+
+  const rule: TrendRule = sawBatch && sawDay ? 'mixed' : sawBatch ? 'batch' : 'day'
+
   return { buckets, rule }
 }
 
 export const TREND_RULE_TEXT: Record<TrendRule, string> = {
-  batch: 'Grouped by run (batch_id)',
-  day: 'Grouped by local calendar day — no batch_id on these trials yet',
+  batch: 'Grouped by run',
+  day: 'Grouped by calendar day — no batch_id on these trials yet',
+  mixed: 'Grouped by run where recorded, by calendar day for earlier trials',
 }
 
 /**

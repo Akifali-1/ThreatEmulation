@@ -31,11 +31,36 @@ async function waitForCharts(page: Page) {
       .toBe(true)
   }
 
+  // Reports serves matplotlib PNGs rather than Recharts, so there is nothing above to wait
+  // on. A screenshot taken mid-decode captures a half-painted image.
+  await page
+    .waitForFunction(
+      () => Array.from(document.images).every((img) => img.complete && img.naturalWidth > 0),
+      undefined,
+      { timeout: 20_000 },
+    )
+    .catch(() => {
+      // A chart endpoint that 404s never completes; that is a legitimate state to capture.
+    })
+
   // Two animation frames: one for the layout, one for the SVG paint.
   await page.evaluate(
     () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
   )
-  await page.waitForTimeout(250)
+
+  /*
+   * Force a paint pass. Images that were `display: none` while loading finish decoding only
+   * once they become visible, and a screenshot taken in that window captures an empty box.
+   * Scrolling the content region and returning settles them.
+   */
+  await page.evaluate(() => {
+    const main = document.querySelector('main')
+    if (main) {
+      main.scrollTop = main.scrollHeight
+      main.scrollTop = 0
+    }
+  })
+  await page.waitForTimeout(600)
 }
 
 const PAGES = [

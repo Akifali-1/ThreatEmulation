@@ -53,6 +53,11 @@
 
   --color-focus: var(--focus);
 
+  /* Chart marks only — never used for status text or icons. */
+  --color-series-agentic: var(--series-agentic);
+  --color-series-static: var(--series-static);
+  --color-series-measure: var(--series-measure);
+
   --font-sans: var(--font-ui);
   --font-mono: var(--font-code);
 

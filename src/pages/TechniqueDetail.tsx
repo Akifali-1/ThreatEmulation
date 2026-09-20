@@ -37,6 +37,12 @@ import { runningTrend } from '../lib/metrics/trend'
 import { describeTechnique } from '../lib/techniques'
 import type { Mode, Trial } from '../lib/api/types'
 
+/** Chart series colour, matching the rest of the app. Never the status red. */
+const SERIES: Record<Mode, string> = {
+  agentic: 'var(--series-agentic)',
+  static: 'var(--series-static)',
+}
+
 export default function TechniqueDetail() {
   const { technique: rawParam } = useParams<{ technique: string }>()
   const technique = rawParam ? decodeURIComponent(rawParam) : ''
@@ -163,7 +169,7 @@ export default function TechniqueDetail() {
                   loading={loading}
                   isEmpty={sequence.length < 2}
                   emptyTitle="Not enough trials to plot a sequence"
-                  legend={<LegendItem color="var(--blue)" label="Running detection rate" />}
+                  legend={<LegendItem color={SERIES[mode]} label="Running detection rate" />}
                 >
                   <div className="h-[240px]">
                     <ResponsiveContainer width="100%" height="100%">
@@ -172,7 +178,7 @@ export default function TechniqueDetail() {
                         <XAxis dataKey="label" tick={CHART_AXIS.tick} tickLine={false} axisLine={CHART_AXIS.axisLine} interval="preserveStartEnd" />
                         <YAxis domain={[0, 100]} tick={CHART_AXIS.tick} tickLine={false} axisLine={CHART_AXIS.axisLine} tickFormatter={(v: number) => `${v}%`} width={44} />
                         <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={(value) => [`${Number(value).toFixed(1)}%`, 'Running TPR']} />
-                        <Line type="monotone" dataKey="tpr" stroke="var(--blue)" strokeWidth={2} dot={false} isAnimationActive={false} />
+                        <Line type="monotone" dataKey="tpr" stroke={SERIES[mode]} strokeWidth={2} dot={false} isAnimationActive={false} />
                       </LineChart>
                     </ResponsiveContainer>
                   </div>

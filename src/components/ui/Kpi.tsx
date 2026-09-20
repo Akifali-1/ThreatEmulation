@@ -1,51 +1,115 @@
 import type { ReactNode } from 'react'
 
-type KpiTone = 'neutral' | 'positive' | 'attention' | 'risk'
+import { Meter, type MeterTone } from './Meter'
+
+export type KpiTone = 'teal' | 'blue' | 'amber' | 'red' | 'gray'
 
 const VALUE_TONE: Record<KpiTone, string> = {
-  neutral: 'text-ink',
-  positive: 'text-teal',
-  attention: 'text-amber',
-  risk: 'text-red',
+  teal: 'text-teal',
+  blue: 'text-ink',
+  amber: 'text-amber',
+  red: 'text-red',
+  gray: 'text-ink',
 }
 
-interface KpiProps {
-  /** Plain-language label. No uppercase, no initialisms. */
+const METER_FOR: Record<KpiTone, MeterTone> = {
+  teal: 'teal',
+  blue: 'blue',
+  amber: 'amber',
+  red: 'red',
+  gray: 'blue',
+}
+
+interface KpiCardProps {
   label: string
   value: ReactNode
-  /** The reading of the number — what it means, not what it is. */
-  interpretation?: ReactNode
-  /** The raw counts behind it, where they add credibility. */
-  evidence?: ReactNode
+  /** One sentence saying what the number means, not what it is. */
+  description?: ReactNode
+  /** 0..1 fill. Omit entirely when the value has no meaningful whole to be a fraction of. */
+  meter?: number | null
+  /** Stated scale for the meter, so the bar can't be misread. */
+  meterCaption?: ReactNode
+  footer?: ReactNode
+  /** Short labels rendered as chips — used instead of a meter where the value is a set. */
+  chips?: string[]
   tone?: KpiTone
   className?: string
 }
 
 /**
- * A primary metric.
+ * A headline metric as a self-contained card.
  *
- * Three layers, in order of decreasing prominence: the number, what it means in a sentence,
- * and the raw counts. The interpretation line is the point of the component — a dashboard
- * that shows "63.6%" and stops has moved the analytical work onto the reader.
+ * No icon: the label and the number do the work. The description carries the interpretation,
+ * which is the part that actually needed adding — the previous version showed the number and
+ * left the reader to work out what it meant.
+ *
+ * A meter appears only when there is a real 0..1 proportion behind it, and the caption then
+ * states what the scale is.
  */
-export function Kpi({ label, value, interpretation, evidence, tone = 'neutral', className = '' }: KpiProps) {
+export function KpiCard({
+  label,
+  value,
+  description,
+  meter,
+  meterCaption,
+  footer,
+  chips,
+  tone = 'gray',
+  className = '',
+}: KpiCardProps) {
   return (
-    <div className={`flex flex-col gap-1.5 px-5 py-4 ${className}`}>
+    <div className={`flex flex-col rounded-lg border border-border bg-surface p-5 ${className}`}>
       <p className="t-secondary text-ink-muted">{label}</p>
-      <p className={`t-metric mt-0.5 ${VALUE_TONE[tone]}`}>{value}</p>
-      {interpretation && <p className="t-secondary text-ink">{interpretation}</p>}
-      {evidence && <p className="t-technical text-ink-faint">{evidence}</p>}
+
+      <p className={`t-metric mt-2 ${VALUE_TONE[tone]}`}>{value}</p>
+
+      {description && <p className="t-secondary mt-2 text-ink-muted">{description}</p>}
+
+      {meter != null && (
+        <Meter value={meter} tone={METER_FOR[tone]} label={`${label} meter`} className="mt-4" />
+      )}
+
+      {meterCaption && <p className="t-secondary mt-1.5 text-ink-faint">{meterCaption}</p>}
+
+      {chips && chips.length > 0 && (
+        <ul className="mt-3.5 flex flex-wrap gap-1.5">
+          {chips.map((chip) => (
+            <li
+              key={chip}
+              className="t-technical rounded border border-border bg-surface-2 px-1.5 py-0.5 text-ink-muted"
+            >
+              {chip}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {footer && <div className="t-secondary mt-auto pt-4 text-ink-faint">{footer}</div>}
     </div>
   )
 }
 
-/** Lays out primary metrics with hairline dividers that collapse on narrow screens. */
-export function KpiRow({ children, className = '' }: { children: ReactNode; className?: string }) {
+/** Responsive row of KpiCards. */
+export function KpiGrid({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
-    <div
-      className={`grid grid-cols-1 divide-y divide-border sm:grid-cols-2 sm:divide-y-0 lg:grid-cols-4 ${className}`}
-    >
+    <div className={`grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4 ${className}`}>
       {children}
+    </div>
+  )
+}
+
+/** Card header text, with an optional one-line context. */
+export function CardHeading({
+  title,
+  subtitle,
+}: {
+  title: ReactNode
+  subtitle?: ReactNode
+}) {
+  return (
+    <div className="min-w-0">
+      <h2 className="t-card text-ink">{title}</h2>
+      {subtitle && <p className="t-secondary mt-0.5 text-ink-muted">{subtitle}</p>}
     </div>
   )
 }

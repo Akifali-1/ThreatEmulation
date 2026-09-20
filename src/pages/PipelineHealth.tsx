@@ -5,7 +5,7 @@ import { InsightList } from '../components/ui/Insight'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { Disclosure, DisclosureText } from '../components/ui/Disclosure'
-import { Kpi, KpiRow } from '../components/ui/Kpi'
+import { KpiCard, KpiGrid } from '../components/ui/Kpi'
 import { StatusRow, VerdictBanner, type ServiceState } from '../components/ui/Status'
 import { useHealth } from '../context/HealthContext'
 import { useNow } from '../hooks/useNow'
@@ -135,38 +135,41 @@ export default function PipelineHealth() {
           </Card>
         )}
 
-        <Card variant="card" className="overflow-hidden">
-          <KpiRow>
-            <Kpi
-              label="Last alert"
-              value={loading ? '—' : relativeLastAlert}
-              interpretation={
-                lastAlert
-                  ? `Most recent Wazuh alert, from ${lastAlert.source}`
-                  : 'Wazuh has not raised an alert yet'
-              }
-            />
-            <Kpi
-              label="Last trial"
-              value={loading ? '—' : relativeLastTrial}
-              interpretation="Time since the newest recorded trial"
-            />
-            <Kpi
-              label="Silent misses"
-              value={loading ? '—' : String(streak.current)}
-              tone={streak.alerting ? 'risk' : 'neutral'}
-              interpretation={
-                streak.alerting ? 'Investigate — this usually means a broken pipeline' : 'Nothing undetected right now'
-              }
-            />
-            <Kpi
-              label="Longest silent run"
-              value={loading ? '—' : String(streak.longest)}
-              interpretation="Historically, across all trials on record"
-              evidence={loading ? undefined : `Warns at ${streak.threshold} in a row`}
-            />
-          </KpiRow>
-        </Card>
+        <KpiGrid>
+          <KpiCard
+            tone="blue"
+            label="Last alert"
+            value={loading ? '—' : relativeLastAlert}
+            description={
+              lastAlert
+                ? `Most recent Wazuh alert, from ${lastAlert.source}`
+                : 'Wazuh has not raised an alert yet'
+            }
+          />
+          <KpiCard
+            tone="gray"
+            label="Last trial"
+            value={loading ? '—' : relativeLastTrial}
+            description="Time since the newest recorded trial"
+          />
+          <KpiCard
+            tone={streak.alerting ? 'red' : 'gray'}
+            label="Silent misses"
+            value={loading ? '—' : String(streak.current)}
+            description={
+              streak.alerting
+                ? 'Investigate — this usually means a broken pipeline'
+                : 'Nothing undetected right now'
+            }
+            footer={loading ? undefined : `Warns at ${streak.threshold} in a row`}
+          />
+          <KpiCard
+            tone="gray"
+            label="Longest silent run"
+            value={loading ? '—' : String(streak.longest)}
+            description="Historically, across all trials on record"
+          />
+        </KpiGrid>
 
         <Card title="Why a silent-miss run matters">
           <div className="max-w-3xl space-y-2.5">
