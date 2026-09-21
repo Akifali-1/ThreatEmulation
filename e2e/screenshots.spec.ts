@@ -64,7 +64,7 @@ async function waitForCharts(page: Page) {
 }
 
 const PAGES = [
-  { path: '/', name: 'overview', heading: 'Overview', nav: 'Overview' },
+  { path: '/overview', name: 'overview', heading: 'Overview', nav: 'Overview' },
   { path: '/live', name: 'live', heading: 'Live Operations', nav: 'Live' },
   { path: '/trials', name: 'trials', heading: 'Trials', nav: 'Trials' },
   { path: '/techniques', name: 'techniques', heading: 'Techniques', nav: 'Techniques' },
@@ -113,7 +113,7 @@ test('Technique detail renders via click-through', async ({ page }, testInfo) =>
 })
 
 test('navigation covers every section', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('/overview')
   const nav = page.getByRole('navigation', { name: 'Sections' })
   for (const item of PAGES) {
     await expect(nav.getByRole('link', { name: item.nav, exact: true })).toBeVisible()

@@ -26,10 +26,9 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Monitor',
     items: [
       {
-        to: '/',
+        to: '/overview',
         label: 'Overview',
         icon: 'overview',
-        end: true,
         description: 'How the campaign is performing overall',
       },
       {

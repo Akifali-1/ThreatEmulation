@@ -8,7 +8,7 @@ import { expect, test, type Page } from '@playwright/test'
  * a returning visitor hits.
  */
 const DARK_PAGES = [
-  { path: '/', name: 'overview', heading: 'Overview' },
+  { path: '/overview', name: 'overview', heading: 'Overview' },
   { path: '/compare', name: 'compare', heading: 'Compare' },
   { path: '/health', name: 'pipeline-health', heading: 'Pipeline Health' },
   { path: '/techniques', name: 'techniques', heading: 'Techniques' },

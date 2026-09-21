@@ -9,7 +9,7 @@ import { expect, test } from '@playwright/test'
  */
 
 test('every sidebar destination is reachable by keyboard', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('/overview')
   const nav = page.getByRole('navigation', { name: 'Sections' })
 
   for (const label of ['Live', 'Trials', 'Compare', 'Pipeline Health', 'Methodology']) {
@@ -20,7 +20,7 @@ test('every sidebar destination is reachable by keyboard', async ({ page }) => {
 })
 
 test('theme toggle works from the keyboard', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('/overview')
   const toggle = page.getByRole('button', { name: /Switch to .* theme/ })
   await toggle.focus()
   await expect(toggle).toBeFocused()
@@ -32,7 +32,7 @@ test('theme toggle works from the keyboard', async ({ page }) => {
 })
 
 test('status popover opens, closes on Escape, and restores focus', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('/overview')
   const trigger = page.getByRole('button', { name: /System |Partial outage|Systems unreachable|Checking systems/ })
   await trigger.click()
 
@@ -75,7 +75,7 @@ test('a trial row is focusable and opens the detail drawer with Enter', async ({
 })
 
 test('charts expose an accessible name', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('/overview')
   await expect(page.locator('main h1')).toBeVisible({ timeout: 20_000 })
 
   const containers = page.locator('.recharts-responsive-container')
