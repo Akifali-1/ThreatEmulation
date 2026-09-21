@@ -4,9 +4,9 @@
  * Components must never hardcode a colour; they reference these names. Dark mode is the
  * same token set re-pointed under [data-theme="dark"], so every component themes for free.
  *
- * Palette intent: warm off-white paper, white surfaces, hairline borders, deep navy chrome.
- * Red = Red Agent (attacker), blue = Blue Agent (detector). Detected is teal; a miss is a
- * neutral gray because it is a research outcome, not an error.
+ * Palette intent: warm off-white paper, white surfaces, hairline borders, chrome as a raised
+ * surface. Red = Red Agent (attacker), blue = Blue Agent (detector). Detected is teal; a miss
+ * is a neutral gray because it is a research outcome, not an error.
  */
 
 :root {
@@ -27,12 +27,21 @@
      non-essential text. Now 3.14:1 on the page and 3.43:1 on a card. */
   --ink-faint: #868b94;
 
-  /* Chrome */
-  --navy: #10263a;
-  --navy-2: #0b1b2b;
-  --navy-ink: #e8edf2;
-  --navy-ink-muted: #93a4b5;
-  --navy-border: #1e364d;
+  /* Chrome — the sidebar and top bar.
+   *
+   * Chrome is a quiet surface, not a contrasting band. It was previously a deep navy, which put
+   * a hard tonal edge against the warm content area; the sidebar and the dashboard read as two
+   * pages butted together rather than one product.
+   *
+   * It sits a step *below* the page rather than above it. A pure-white chrome made the
+   * navigation the brightest thing on screen and the whole view glare, so this is a warm grey a
+   * shade deeper than --bg: the white cards stay the highest surface and carry the attention.
+   * The ink tokens alias, because those are re-pointed per theme already. */
+  --chrome: #ebe7dd;
+  --chrome-2: #dfdacd;
+  --chrome-border: #d9d4c7;
+  --chrome-ink: var(--ink);
+  --chrome-ink-muted: var(--ink-muted);
 
   /* Agent + outcome accents */
   --red: #b4432f;
@@ -112,11 +121,11 @@
   --ink-muted: #a2a9b4;
   --ink-faint: #767d88;
 
-  --navy: #0c1d2e;
-  --navy-2: #081625;
-  --navy-ink: #e8edf2;
-  --navy-ink-muted: #8f9fb0;
-  --navy-border: #1b3348;
+  /* Chrome inverts its relationship rather than its value: on a near-black page the panel reads
+     as raised by sitting a step *lighter*, which is the mirror of the light theme. */
+  --chrome: #171b22;
+  --chrome-2: #232932;
+  --chrome-border: #2a303a;
 
   /* Accents are lightened for contrast against #171b22 rather than inverted. */
   --red: #d9634c;

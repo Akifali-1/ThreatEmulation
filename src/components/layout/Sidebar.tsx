@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router'
+import { Link, NavLink } from 'react-router'
 
 import { NAV_GROUPS } from '../../lib/nav'
 import { Icon } from '../ui/Icon'
@@ -9,28 +9,47 @@ import { Icon } from '../ui/Icon'
  * Full width with labels from `lg` up; collapses to an icon rail on tablet. Both states are
  * the same DOM — only the label visibility changes — so there's no JS state to desync.
  */
-export function Sidebar() {
+interface SidebarProps {
+  /** Manual collapse from the top bar. Forces the icon rail at every width. */
+  collapsed: boolean
+}
+
+export function Sidebar({ collapsed }: SidebarProps) {
+  // When collapsed the labels are hidden at every width. Otherwise they follow the `lg`
+  // breakpoint, so narrow screens still get the rail with no state involved.
+  const groupLabel = collapsed ? 'hidden' : 'hidden lg:block'
+
   return (
     <nav
       aria-label="Sections"
-      className="flex w-14 shrink-0 flex-col border-r border-navy-border bg-navy lg:w-[228px]"
+      className={`flex shrink-0 flex-col border-r border-chrome-border bg-chrome ${
+        collapsed ? 'w-14' : 'w-14 lg:w-[228px]'
+      }`}
     >
-      <div className="flex h-12 shrink-0 items-center gap-2.5 border-b border-navy-border px-3 lg:px-4">
+      {/* The brand doubles as the way back to the landing page — the cover renders outside the
+          shell, so without this there is no route to it from any tab. */}
+      <Link
+        to="/"
+        title="Back to the landing page"
+        className="flex h-12 shrink-0 items-center gap-2.5 border-b border-chrome-border px-3 transition-colors hover:bg-chrome-2 lg:px-4"
+      >
         <Mark />
-        <div className="hidden min-w-0 lg:block">
-          <p className="truncate text-[12px] font-semibold leading-tight text-navy-ink">
+        <div className={`min-w-0 ${groupLabel}`}>
+          <p className="truncate text-[12px] font-semibold leading-tight text-chrome-ink">
             Threat Emulation
           </p>
-          <p className="truncate text-[10px] leading-tight text-navy-ink-muted">
+          <p className="truncate text-[10px] leading-tight text-chrome-ink-muted">
             Agentic AI red/blue research
           </p>
         </div>
-      </div>
+      </Link>
 
       <div className="scroll-thin flex-1 overflow-y-auto py-3">
         {NAV_GROUPS.map((group) => (
           <div key={group.label} className="mb-4 last:mb-0">
-            <p className="hidden px-4 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-navy-ink-muted lg:block">
+            <p
+              className={`px-4 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-chrome-ink-muted ${groupLabel}`}
+            >
               {group.label}
             </p>
             <ul>
@@ -41,25 +60,17 @@ export function Sidebar() {
                     end={item.end}
                     title={item.label}
                     className={({ isActive }) =>
-                      `relative flex items-center gap-2.5 px-3 py-1.5 text-[12.5px] transition-colors lg:px-4 ${
+                      `mx-2 flex items-center gap-2.5 rounded px-2.5 py-1.5 text-[12.5px] transition-colors ${
                         isActive
-                          ? 'bg-navy-2 font-medium text-navy-ink'
-                          : 'text-navy-ink-muted hover:bg-navy-2 hover:text-navy-ink'
+                          ? 'bg-blue-tint font-medium text-blue'
+                          : 'text-chrome-ink-muted hover:bg-chrome-2 hover:text-chrome-ink'
                       }`
                     }
                   >
-                    {({ isActive }) => (
-                      <>
-                        {isActive && (
-                          <span
-                            className="absolute inset-y-0 left-0 w-0.5 bg-blue"
-                            aria-hidden="true"
-                          />
-                        )}
-                        <Icon name={item.icon} size={15} className="shrink-0" />
-                        <span className="hidden truncate lg:inline">{item.label}</span>
-                      </>
-                    )}
+                    <Icon name={item.icon} size={15} className="shrink-0" />
+                    <span className={`truncate ${collapsed ? 'hidden' : 'hidden lg:inline'}`}>
+                      {item.label}
+                    </span>
                   </NavLink>
                 </li>
               ))}

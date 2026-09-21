@@ -19,11 +19,11 @@
   --color-ink-muted: var(--ink-muted);
   --color-ink-faint: var(--ink-faint);
 
-  --color-navy: var(--navy);
-  --color-navy-2: var(--navy-2);
-  --color-navy-ink: var(--navy-ink);
-  --color-navy-ink-muted: var(--navy-ink-muted);
-  --color-navy-border: var(--navy-border);
+  --color-chrome: var(--chrome);
+  --color-chrome-2: var(--chrome-2);
+  --color-chrome-ink: var(--chrome-ink);
+  --color-chrome-ink-muted: var(--chrome-ink-muted);
+  --color-chrome-border: var(--chrome-border);
 
   --color-red: var(--red);
   --color-red-tint: var(--red-tint);
@@ -169,6 +169,38 @@ body {
   border-radius: 4px;
 }
 .scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/*
+ * The landing page scrolls the document rather than an inner region, so it never picks up
+ * .scroll-thin — it gets the platform scrollbar, which against a near-black page reads as a
+ * bright stripe down the right edge.
+ *
+ * Scoped with :has() to the landing root, so it cannot leak into the dashboard: the shell is
+ * overflow-hidden with its own scrolling region and never touches the document scrollbar. Kept
+ * thin and low-contrast rather than hidden — over a three-screen narrative the position of the
+ * thumb is the only cue for how much is left.
+ */
+html:has(.landing) {
+  scrollbar-width: thin;
+  scrollbar-color: #2b3746 transparent;
+}
+
+html:has(.landing)::-webkit-scrollbar {
+  width: 10px;
+}
+
+html:has(.landing)::-webkit-scrollbar-thumb {
+  background: #2b3746;
+  border-radius: 5px;
+}
+
+html:has(.landing)::-webkit-scrollbar-thumb:hover {
+  background: #3a4859;
+}
+
+html:has(.landing)::-webkit-scrollbar-track {
   background: transparent;
 }
 

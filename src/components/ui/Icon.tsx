@@ -27,6 +27,7 @@ export type IconName =
   | 'alert'
   | 'search'
   | 'filter'
+  | 'panel'
 
 const PATHS: Record<IconName, string> = {
   overview: 'M2.5 2.5h5v5h-5zM8.5 2.5h5v3h-5zM8.5 6.5h5v7h-5zM2.5 8.5h5v5h-5z',
@@ -51,6 +52,7 @@ const PATHS: Record<IconName, string> = {
   alert: 'M8 2.5 1.5 13.5h13zM8 6.5v3M8 11.5h.01',
   search: 'M7 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM10.5 10.5 14 14',
   filter: 'M2 3.5h12L9.5 8.5v4l-3 1.5v-5.5z',
+  panel: 'M2.5 3.5h11v9h-11zM6.5 3.5v9',
 }
 
 interface IconProps extends Omit<SVGProps<SVGSVGElement>, 'name'> {

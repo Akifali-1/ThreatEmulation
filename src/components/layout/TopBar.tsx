@@ -7,14 +7,23 @@ import { useTheme } from '../../context/ThemeContext'
 import { findNavItem } from '../../lib/nav'
 import { Icon } from '../ui/Icon'
 
+interface TopBarProps {
+  sidebarCollapsed: boolean
+  onToggleSidebar: () => void
+}
+
 /**
  * Persistent status bar.
  *
  * Carries the page title for orientation and a single aggregated health verdict. The previous
  * version listed every service separately, which turned the header into a second monitoring
  * dashboard competing with the page below it. Detail lives in the popover.
+ *
+ * Also owns the sidebar toggle. It sits here rather than on the sidebar's own edge because the
+ * rail is only 56px wide when collapsed, which leaves no room for a hit target that survives
+ * the collapse it triggers.
  */
-export function TopBar() {
+export function TopBar({ sidebarCollapsed, onToggleSidebar }: TopBarProps) {
   const { pathname } = useLocation()
   const item = findNavItem(pathname)
   const { theme, toggle } = useTheme()
@@ -52,10 +61,21 @@ export function TopBar() {
         : { label: 'Systems unreachable', dot: 'bg-red' }
 
   return (
-    <header className="flex h-14 shrink-0 items-center gap-4 border-b border-navy-border bg-navy px-5 lg:px-6">
+    <header className="flex h-14 shrink-0 items-center gap-3 border-b border-chrome-border bg-chrome px-5 lg:px-6">
+      {/* Only meaningful at lg and up — below that the sidebar is a rail by layout, not choice. */}
+      <button
+        type="button"
+        onClick={onToggleSidebar}
+        aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+        aria-pressed={sidebarCollapsed}
+        className="hidden h-7 w-7 shrink-0 items-center justify-center rounded text-chrome-ink-muted transition-colors hover:bg-chrome-2 hover:text-chrome-ink lg:flex"
+      >
+        <Icon name="panel" size={15} />
+      </button>
+
       <div className="min-w-0">
-        <h1 className="t-card truncate text-navy-ink">{item?.label ?? 'Not found'}</h1>
-        <p className="t-secondary truncate text-navy-ink-muted">{item?.description ?? ''}</p>
+        <h1 className="t-card truncate text-chrome-ink">{item?.label ?? 'Not found'}</h1>
+        <p className="t-secondary truncate text-chrome-ink-muted">{item?.description ?? ''}</p>
       </div>
 
       <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -65,14 +85,14 @@ export function TopBar() {
             aria-expanded={open}
             aria-haspopup="dialog"
             onClick={() => setOpen((value) => !value)}
-            className="flex items-center gap-2 rounded px-2.5 py-1.5 transition-colors hover:bg-navy-2"
+            className="flex items-center gap-2 rounded px-2.5 py-1.5 transition-colors hover:bg-chrome-2"
           >
             <span className={`h-2 w-2 shrink-0 rounded-full ${overall.dot}`} aria-hidden="true" />
-            <span className="t-secondary text-navy-ink">{overall.label}</span>
+            <span className="t-secondary text-chrome-ink">{overall.label}</span>
             <Icon
               name="chevronDown"
               size={12}
-              className={`text-navy-ink-muted transition-transform ${open ? 'rotate-180' : ''}`}
+              className={`text-chrome-ink-muted transition-transform ${open ? 'rotate-180' : ''}`}
             />
           </button>
 
@@ -128,7 +148,7 @@ export function TopBar() {
           type="button"
           onClick={toggle}
           aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} theme`}
-          className="flex h-8 w-8 items-center justify-center rounded text-navy-ink-muted transition-colors hover:bg-navy-2 hover:text-navy-ink"
+          className="flex h-8 w-8 items-center justify-center rounded text-chrome-ink-muted transition-colors hover:bg-chrome-2 hover:text-chrome-ink"
         >
           <Icon name={theme === 'light' ? 'moon' : 'sun'} size={15} />
         </button>
