@@ -27,3 +27,7 @@ dist-ssr
 screenshots
 test-results
 playwright-report
+
+# Generated share build — rebuild with share/build-snapshot.mjs rather than committing 1.4MB of
+# build output. The scripts that produce it are tracked.
+share/site
