@@ -12,7 +12,7 @@ import { Field, Input, Select, ToggleGroup } from '../components/ui/Field'
 import { Table, type Column, type SortState } from '../components/ui/Table'
 import { useTrialsData } from '../hooks/useTrialsData'
 import { csvFilename, downloadCsv, toCsv, type CsvColumn } from '../lib/csv'
-import { formatCount, formatDateTime, formatDelay, formatSeconds } from '../lib/format'
+import { formatCount, formatDateTime, formatDay, formatDelay, formatSeconds } from '../lib/format'
 import { compareNullable } from '../lib/metrics/tpr'
 import { compareTechniques, describeTechnique } from '../lib/techniques'
 import type { Mode, Trial } from '../lib/api/types'
@@ -52,9 +52,11 @@ function compareTrials(a: Trial, b: Trial, key: SortKey): number {
   }
 }
 
-/** The trial's UTC day, for date-range filtering. */
+/** The trial's local day, for date-range filtering. */
 function dayKey(iso: string): string {
-  return iso.slice(0, 10)
+  // Local, not scattered from the ISO string: the table shows local timestamps, so bucketing by
+  // UTC day would exclude a trial from the range its own displayed date falls in.
+  return formatDay(iso)
 }
 
 export default function Trials() {

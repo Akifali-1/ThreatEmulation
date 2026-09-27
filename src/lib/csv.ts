@@ -1,3 +1,5 @@
+import { formatDay } from './format'
+
 export interface CsvColumn<T> {
   key: string
   /** Header text written to the file. */
@@ -38,6 +40,7 @@ export function downloadCsv(filename: string, csv: string): void {
 
 /** Filename stamp, e.g. "trials-agentic-2026-09-18.csv". */
 export function csvFilename(prefix: string, suffix?: string): string {
-  const stamp = new Date().toISOString().slice(0, 10)
+  // Local day, so a file exported just after midnight IST is not stamped with yesterday's date.
+  const stamp = formatDay(new Date().toISOString())
   return `${prefix}${suffix ? `-${suffix}` : ''}-${stamp}.csv`
 }

@@ -1,4 +1,4 @@
-import type { Trial } from './api/types'
+import type { CalderaAgent, Trial } from './api/types'
 import { formatPct, formatSeconds } from './format'
 import { computeEps } from './metrics/eps'
 import { aggregateTrials, rollupByTechnique } from './metrics/tpr'
@@ -197,6 +197,22 @@ export function overviewInsights({ trials }: OverviewInput): Insight[] {
   return insights
 }
 
+export type AgentHealth = 'ready' | 'not-ready' | 'offline' | 'unknown'
+
+/**
+ * Folds an agent record into the one word an operator needs.
+ *
+ * `not-ready` is deliberately separate from `offline`: an agent that is alive but untrusted
+ * accepts a task and silently never runs it, which is a different failure to fix than a dead one.
+ * Unknown means the backend does not report the field yet, which must not read as a fault.
+ */
+export function agentHealth(agent?: CalderaAgent | null): AgentHealth {
+  if (!agent) return 'unknown'
+  if (agent.ready) return 'ready'
+  if (agent.status !== 'alive') return 'offline'
+  return 'not-ready'
+}
+
 export interface PipelineInput {
   trials: Trial[]
   /** False when the last /api/status probe failed. */
@@ -208,6 +224,11 @@ export interface PipelineInput {
   /** undefined when the backend does not report this field yet. */
   calderaAlive?: boolean
   wazuhReachable?: boolean
+  /**
+   * The agent Caldera would task next, or null/undefined when the backend does not report one.
+   * An agent that is present but not ready invalidates every trial run while it stays that way.
+   */
+  calderaAgent?: CalderaAgent | null
 }
 
 export type PipelineState = 'healthy' | 'attention' | 'degraded'
@@ -233,9 +254,11 @@ export function pipelineReading({
   staleMinutes,
   calderaAlive,
   wazuhReachable,
+  calderaAgent,
 }: PipelineInput): PipelineReading {
   const streak = missStreak(trials)
   const insights: Insight[] = []
+  const agent = agentHealth(calderaAgent)
 
   if (apiChecked && !apiReachable) {
     insights.push({
@@ -268,6 +291,29 @@ export function pipelineReading({
       title: 'Caldera is not reporting an agent',
       detail:
         'Techniques cannot be executed without a live Sandcat agent. Trials started now will not run.',
+    })
+  }
+
+  /*
+   * An alive-but-untrusted agent is the failure that looks most like a result: Caldera accepts
+   * the task, the agent never runs it, and the trial records as a miss with no alerts. Called out
+   * ahead of the streak because it explains a streak rather than merely accompanying one.
+   */
+  if (agent === 'not-ready') {
+    insights.push({
+      id: 'agent-untrusted',
+      tone: 'risk',
+      title: `Caldera agent ${calderaAgent?.paw ?? ''} is alive but untrusted`.trim(),
+      detail:
+        'Caldera will not deliver work to an untrusted agent, so no technique executes and every trial in this window records as a miss with no alerts. Restart the Sandcat agent on the target before trusting new results.',
+    })
+  } else if (agent === 'offline') {
+    insights.push({
+      id: 'agent-offline',
+      tone: 'risk',
+      title: `Caldera agent ${calderaAgent?.paw ?? ''} is not alive`.trim(),
+      detail:
+        'The agent is registered but not polling, so nothing will execute. Confirm the Sandcat process is running on the target.',
     })
   }
 
@@ -308,8 +354,15 @@ export function pipelineReading({
     })
   }
 
-  // A down component or a failed probe is a degraded pipeline, not a noted one.
-  const degraded = (apiChecked && !apiReachable) || wazuhReachable === false || calderaAlive === false
+  // A down component or a failed probe is a degraded pipeline, not a noted one. A registered but
+  // unready agent belongs here too: the pipeline is not merely worth a note, it cannot produce a
+  // trustworthy result at all.
+  const degraded =
+    (apiChecked && !apiReachable) ||
+    wazuhReachable === false ||
+    calderaAlive === false ||
+    agent === 'not-ready' ||
+    agent === 'offline'
 
   const state: PipelineState = degraded
     ? 'degraded'

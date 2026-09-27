@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router'
 
 import { PageHeader } from '../components/layout/PageHeader'
 import { LogStream } from '../components/domain/LogStream'
@@ -7,29 +8,133 @@ import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { ErrorState } from '../components/ui/EmptyState'
 import { Field, Input, ToggleGroup } from '../components/ui/Field'
+import { useHealth } from '../context/HealthContext'
 import { useLogStream } from '../context/SocketContext'
+import { useLiveTrial } from '../hooks/useLiveTrial'
+import { useNow } from '../hooks/useNow'
 import { useTrialsData } from '../hooks/useTrialsData'
 import { describeError, runBatch, runBlueAnalysis } from '../lib/api'
-import { formatSeconds } from '../lib/format'
-import { extractTrial } from '../lib/logs'
+import { formatClock, formatSeconds, waitLabel } from '../lib/format'
+import { agentHealth } from '../lib/insights'
 import { describeTechnique } from '../lib/techniques'
-import type { Mode } from '../lib/api/types'
+import type { CalderaAgent, Mode } from '../lib/api/types'
 
 const MIN_TRIALS = 1
 const MAX_TRIALS = 30
 const DEFAULT_TRIALS = '5'
 
-/** Ticks once a second while a run is active, so elapsed time advances between log frames. */
-function useElapsed(since: number | null): number | null {
-  const [now, setNow] = useState(() => Date.now())
+/**
+ * Idle pages need a clock only for relative timestamps; a live run needs per-second motion for
+ * the elapsed counter and the WAITING countdown. Slowing the tick when nothing is moving keeps
+ * the page from re-rendering sixty times a minute for no visible change.
+ */
+const IDLE_TICK_MS = 60_000
+const LIVE_TICK_MS = 1_000
 
-  useEffect(() => {
-    if (since === null) return
-    const timer = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(timer)
-  }, [since])
+/**
+ * Steps that belong to the red agent whatever `source` the backend stamps on them.
+ *
+ * These arrive tagged `system`, which would leave them in the single-line system banner and out
+ * of the Red Agent column entirely — so a trial's own narration never appeared next to the
+ * results it produced. Routing by step as well as source puts the three beats of a trial — plan,
+ * wait, result — in one column, and the banner goes back to carrying system events only.
+ */
+const TRIAL_NARRATION = new Set(['TRIAL_PLANNED', 'WAITING', 'TRIAL_COMPLETE'])
 
-  return since === null ? null : Math.max(0, (now - since) / 1000)
+/**
+ * Batch boundaries also live in the red column.
+ *
+ * They are what the feed groups around — without them the trial blocks have nothing to sit
+ * inside, and a run's trials read as one undifferentiated list across every session. The system
+ * banner still carries them, where they serve a different purpose: what happened most recently.
+ */
+const BATCH_BOUNDARY = new Set(['BATCH_START', 'BATCH_COMPLETE'])
+
+const isRedAgent = (entry: { source: string; step: string }) =>
+  entry.source === 'red' || TRIAL_NARRATION.has(entry.step) || BATCH_BOUNDARY.has(entry.step)
+
+interface Readiness {
+  state: 'ready' | 'blocked' | 'checking'
+  headline: string
+  detail: string
+}
+
+const READINESS_TONE: Record<Readiness['state'], { wrap: string; dot: string; text: string }> = {
+  ready: { wrap: 'border-teal-line bg-teal-tint', dot: 'bg-teal', text: 'text-teal' },
+  blocked: { wrap: 'border-red-line bg-red-tint', dot: 'bg-red', text: 'text-red' },
+  checking: { wrap: 'border-border bg-surface-2', dot: 'bg-amber', text: 'text-ink-muted' },
+}
+
+/**
+ * Whether a batch started now would produce a result worth recording.
+ *
+ * Mirrors the blocking conditions in the Pipeline Health verdict so the two pages cannot
+ * disagree about whether the pipeline works — a run needs the backend, an agent Caldera will
+ * actually task, and Wazuh to see what it does. The order is the order they break a run: the
+ * backend gates everything, an untrusted agent stops execution, and Wazuh stops detection.
+ *
+ * This is a warning, not a lock. The backend enforces the same check server-side, so a stale
+ * reading here cannot let a doomed batch through.
+ */
+function runReadiness(
+  checked: boolean,
+  apiReachable: boolean,
+  agent: CalderaAgent | null | undefined,
+  wazuhReachable: boolean | undefined,
+): Readiness {
+  if (!checked) {
+    return {
+      state: 'checking',
+      headline: 'Checking the pipeline…',
+      detail: 'Confirming the backend, the Caldera agent and Wazuh.',
+    }
+  }
+  if (!apiReachable) {
+    return {
+      state: 'blocked',
+      headline: 'Backend is unreachable',
+      detail: 'Nothing can start until the API answers.',
+    }
+  }
+
+  const state = agentHealth(agent)
+  const named = agent?.paw ? `Agent ${agent.paw}` : 'The Caldera agent'
+
+  if (state === 'not-ready') {
+    return {
+      state: 'blocked',
+      headline: `${named} is alive but untrusted`,
+      detail:
+        'Caldera will not task it, so nothing would execute and the trial would read as a miss. Restart the Sandcat agent on the target first.',
+    }
+  }
+  if (state === 'offline') {
+    return {
+      state: 'blocked',
+      headline: `${named} is not alive`,
+      detail: 'It is registered but not polling, so nothing would execute.',
+    }
+  }
+  if (state === 'unknown') {
+    return {
+      state: 'checking',
+      headline: 'Agent state unknown',
+      detail: 'The backend is not reporting a red-group agent yet.',
+    }
+  }
+  if (wazuhReachable === false) {
+    return {
+      state: 'blocked',
+      headline: 'Wazuh is unreachable',
+      detail: 'No detection can be recorded, so every trial would look like an evasion.',
+    }
+  }
+
+  return {
+    state: 'ready',
+    headline: 'Ready to run',
+    detail: `Agent ${agent?.paw} is trusted and Wazuh is reachable.`,
+  }
 }
 
 /**
@@ -41,6 +146,7 @@ function useElapsed(since: number | null): number | null {
  */
 export default function LiveOperations() {
   const socket = useLogStream()
+  const health = useHealth()
   const agentic = useTrialsData('agentic')
   const staticData = useTrialsData('static')
 
@@ -55,22 +161,42 @@ export default function LiveOperations() {
   const parsed = Number.parseInt(trialsInput, 10)
   const valid = Number.isFinite(parsed) && parsed >= MIN_TRIALS && parsed <= MAX_TRIALS
 
+  const readiness = runReadiness(
+    health.checked,
+    health.reachable,
+    health.status?.caldera?.agent,
+    health.status?.wazuh?.reachable,
+  )
+
   const refreshAll = useCallback(() => {
     agentic.refetch()
     staticData.refetch()
   }, [agentic, staticData])
 
-  const running = useMemo(() => {
-    if (startedAtIndex === null) return socket.lastBatchStep === 'BATCH_START'
+  // The trial in flight is a fold over the log buffer. It is kept separate from the clock below
+  // so neither drives the other: the tick rate depends on whether anything is counting, which
+  // would be a cycle if the clock were an input to that decision.
+  const live = useLiveTrial(socket.entries, startedAtIndex)
 
-    const since = socket.entries.slice(startedAtIndex)
-    const last = [...since]
-      .reverse()
-      .find((entry) => entry.step === 'BATCH_START' || entry.step === 'BATCH_COMPLETE')
+  const ticking = live.running || live.waiting !== null
+  const now = useNow(ticking ? LIVE_TICK_MS : IDLE_TICK_MS)
 
-    if (!last) return true
-    return last.step === 'BATCH_START'
-  }, [socket.entries, socket.lastBatchStep, startedAtIndex])
+  const elapsed =
+    live.running && live.startedAt !== null ? Math.max(0, (now - live.startedAt) / 1000) : null
+
+  // Elapsed counts up from the current batch's own start, so a leftover mark from an earlier run
+  // cannot show through. Ceil keeps the last whole second on screen instead of blinking to 0.
+  const waitRemaining = live.waiting
+    ? Math.max(0, Math.ceil((live.waiting.endsAt - now) / 1000))
+    : null
+
+  // Null past zero drops the number, rather than leaving a frozen "0s" that reads as stuck.
+  const waitingText =
+    live.waiting && waitRemaining !== null
+      ? waitLabel(live.waiting.phase, waitRemaining > 0 ? waitRemaining : null)
+      : null
+
+  const running = live.running
 
   // Refresh results when a batch finishes. Fetch only, no state, so this stays a genuine
   // sync with the external event stream.
@@ -81,23 +207,6 @@ export default function LiveOperations() {
     lastSeenStepRef.current = step
     if (step === 'BATCH_COMPLETE') refreshAll()
   }, [socket.lastBatchStep, refreshAll])
-
-  const run = useMemo(() => {
-    const since = startedAtIndex === null ? socket.entries : socket.entries.slice(startedAtIndex)
-    const startEntry = since.find((entry) => entry.step === 'BATCH_START')
-    const completes = since.filter((entry) => entry.step === 'TRIAL_COMPLETE')
-    const latest = completes[completes.length - 1]
-    const latestTrial = latest ? extractTrial(latest.extra) : null
-
-    return {
-      startedAt: startEntry ? new Date(startEntry.timestamp).getTime() : null,
-      completed: completes.length,
-      latestTrial,
-      lastEntry: since[since.length - 1] ?? null,
-    }
-  }, [socket.entries, startedAtIndex])
-
-  const elapsed = useElapsed(running && run.startedAt !== null ? run.startedAt : null)
 
   const startBatch = async () => {
     if (!valid || running || starting) return
@@ -129,12 +238,44 @@ export default function LiveOperations() {
     }
   }
 
-  const red = useMemo(() => socket.entries.filter((e) => e.source === 'red'), [socket.entries])
+  // Clearing the feed drops the anchor with it: an index past the end of an emptied buffer would
+  // leave every slice short, which reads as a run that started and never finished.
+  const clearFeed = () => {
+    setStartedAtIndex(null)
+    socket.clear()
+  }
+
+  const red = useMemo(() => socket.entries.filter((e) => isRedAgent(e)), [socket.entries])
   const blue = useMemo(() => socket.entries.filter((e) => e.source === 'blue'), [socket.entries])
-  const system = useMemo(() => socket.entries.filter((e) => e.source === 'system'), [socket.entries])
+  const system = useMemo(
+    () => socket.entries.filter((e) => e.source === 'system' && !TRIAL_NARRATION.has(e.step)),
+    [socket.entries],
+  )
   const latestSystem = system.length > 0 ? system[system.length - 1] : null
 
-  const latestTechnique = run.latestTrial ? describeTechnique(run.latestTrial.technique) : null
+  // The plan is the freshest word on what the agent is doing — TRIAL_PLANNED lands well before
+  // the trial resolves, so this tracks the technique in flight rather than the last finished one.
+  const techniqueName = live.planned?.technique ?? live.latestTrial?.technique ?? null
+  // Only the plan vocabulary matches the feed: the card and the "Agent chose X" line have to name
+  // the same thing, and the MITRE mapping is already the sub-line beneath.
+  const latestTechnique = techniqueName ? describeTechnique(techniqueName) : null
+
+  /*
+   * The countdown is handed down to the WAITING entry itself rather than rendered as its own row,
+   * so one trial is exactly three stacked entries — plan, wait, result — and the wait settles
+   * back to the duration it announced once the trial closes.
+   */
+  const counting =
+    live.waiting && waitingText ? { id: live.waiting.entryId, text: waitingText } : null
+
+  /*
+   * Sits beside the feed heading so the run's progress is legible from the log itself rather than
+   * only from the Current run card above it. The total comes from the frames when it can — the
+   * TRIAL_PLANNED frames carry it — so a refresh mid-batch does not blank the denominator the
+   * way the component's own `requestedTrials` would.
+   */
+  const plannedTotal = live.planned?.total ?? requestedTrials
+  const trialProgress = plannedTotal ? `${live.completed} of ${plannedTotal} trials completed` : null
 
   return (
     <>
@@ -192,6 +333,35 @@ export default function LiveOperations() {
             </div>
           </div>
 
+          {/*
+            Pre-flight, inside the card and directly under the controls, because it is only
+            useful read before Start is pressed. The backend refuses the same conditions, so
+            this is the warning rather than the lock.
+          */}
+          <div
+            role="status"
+            className={`mt-5 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded border px-3.5 py-2.5 ${
+              READINESS_TONE[readiness.state].wrap
+            }`}
+          >
+            <span
+              className={`h-2.5 w-2.5 shrink-0 rounded-full ${READINESS_TONE[readiness.state].dot}`}
+              aria-hidden="true"
+            />
+            <span className={`t-card ${READINESS_TONE[readiness.state].text}`}>
+              {readiness.headline}
+            </span>
+            <span className="t-secondary text-ink-muted">{readiness.detail}</span>
+            {readiness.state === 'blocked' && (
+              <Link
+                to="/health"
+                className="t-secondary ml-auto shrink-0 font-medium text-ink underline decoration-border-strong underline-offset-2 hover:decoration-ink"
+              >
+                Check Pipeline Health →
+              </Link>
+            )}
+          </div>
+
           {!valid && (
             <p className="t-secondary mt-3 text-amber">
               Enter a whole number of trials between {MIN_TRIALS} and {MAX_TRIALS}.
@@ -219,34 +389,37 @@ export default function LiveOperations() {
               <RunFact
                 label="Progress"
                 value={
-                  requestedTrials
-                    ? `${Math.min(run.completed, requestedTrials)} of ${requestedTrials}`
-                    : `${run.completed}`
+                  plannedTotal
+                    ? `${Math.min(live.completed, plannedTotal)} of ${plannedTotal}`
+                    : `${live.completed}`
                 }
                 sub="trials completed"
               />
               <RunFact
                 label="Latest technique"
-                value={latestTechnique ? latestTechnique.mitreId || run.latestTrial!.technique : '—'}
+                // The raw name off the frame, matching the "Agent chose X" line in the feed. The
+                // MITRE mapping is context, so it belongs on the sub-line rather than replacing
+                // the name the feed and the agent both use.
+                value={techniqueName ?? '—'}
                 sub={latestTechnique?.mapped ? latestTechnique.name : undefined}
               />
               <RunFact
                 label="Elapsed"
                 value={elapsed === null ? '—' : formatSeconds(elapsed, 0)}
-                sub={run.startedAt ? 'since batch start' : 'waiting for start event'}
+                sub={live.startedAt !== null ? 'since batch start' : 'waiting for start event'}
               />
               <RunFact
                 label="Latest result"
                 value={
-                  run.latestTrial
-                    ? run.latestTrial.detected
-                      ? formatSeconds(run.latestTrial.time_to_detect)
+                  live.latestTrial
+                    ? live.latestTrial.detected
+                      ? formatSeconds(live.latestTrial.time_to_detect)
                       : 'Not detected'
                     : 'Waiting…'
                 }
-                sub={run.latestTrial ? undefined : 'no trials finished yet'}
+                sub={live.latestTrial ? undefined : 'no trials finished yet'}
                 tone={
-                  run.latestTrial ? (run.latestTrial.detected ? 'detected' : 'miss') : 'muted'
+                  live.latestTrial ? (live.latestTrial.detected ? 'detected' : 'miss') : 'muted'
                 }
               />
             </dl>
@@ -254,9 +427,16 @@ export default function LiveOperations() {
         </Card>
 
         <Card
-          title="Agent activity"
+          title={
+            <span className="flex flex-wrap items-baseline gap-x-3">
+              Agent activity
+              {trialProgress && (
+                <span className="t-secondary font-normal text-ink-muted">{trialProgress}</span>
+              )}
+            </span>
+          }
           actions={
-            <Button size="sm" variant="ghost" onClick={socket.clear} disabled={socket.entries.length === 0}>
+            <Button size="sm" variant="ghost" onClick={clearFeed} disabled={socket.entries.length === 0}>
               Clear
             </Button>
           }
@@ -272,7 +452,7 @@ export default function LiveOperations() {
             {latestSystem ? (
               <>
                 <span className="t-technical shrink-0 text-ink-faint">
-                  {latestSystem.timestamp.slice(11, 19)}
+                  {formatClock(latestSystem.timestamp)}
                 </span>
                 <span className="t-secondary truncate text-ink">{latestSystem.message}</span>
               </>
@@ -287,6 +467,10 @@ export default function LiveOperations() {
               tone="red"
               entries={red}
               emptyLabel="No red agent activity in this session."
+              counting={counting}
+              // The frame's own mode when the batch announced one, otherwise the mode this page
+              // started it with — so opening the page mid-run still labels the arm correctly.
+              mode={live.mode ?? (startedAtIndex !== null ? batchMode : null)}
             />
             <LogStream
               title="Blue Agent"

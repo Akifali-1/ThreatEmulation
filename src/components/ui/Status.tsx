@@ -10,7 +10,12 @@ const STATE_META: Record<ServiceState, { dot: string; label: string }> = {
 }
 
 interface StatusRowProps {
-  services: { name: string; state: ServiceState; detail?: string }[]
+  /**
+   * `label` overrides the generic state wording. Some rows are not about reachability at all —
+   * a Caldera agent can be reachable and still untrusted, and calling that "Unreachable" would
+   * describe the wrong failure.
+   */
+  services: { name: string; state: ServiceState; label?: string; detail?: string }[]
   className?: string
 }
 
@@ -25,15 +30,16 @@ export function StatusRow({ services, className = '' }: StatusRowProps) {
     <ul className={`flex flex-wrap items-center gap-x-6 gap-y-2 ${className}`}>
       {services.map((service) => {
         const meta = STATE_META[service.state]
+        const label = service.label ?? meta.label
         return (
           <li
             key={service.name}
             className="flex items-center gap-2"
-            aria-label={`${service.name}: ${meta.label}`}
+            aria-label={`${service.name}: ${label}`}
           >
             <span className={`h-2 w-2 shrink-0 rounded-full ${meta.dot}`} aria-hidden="true" />
             <span className="t-body text-ink">{service.name}</span>
-            <span className="t-secondary text-ink-muted">{meta.label}</span>
+            <span className="t-secondary text-ink-muted">{label}</span>
             {service.detail && <span className="t-technical text-ink-faint">{service.detail}</span>}
           </li>
         )

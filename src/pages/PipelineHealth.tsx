@@ -9,8 +9,23 @@ import { KpiCard, KpiGrid } from '../components/ui/Kpi'
 import { StatusRow, VerdictBanner, type ServiceState } from '../components/ui/Status'
 import { useHealth } from '../context/HealthContext'
 import { useNow } from '../hooks/useNow'
-import { pipelineReading } from '../lib/insights'
+import { formatClock } from '../lib/format'
+import { agentHealth, pipelineReading, type AgentHealth } from '../lib/insights'
 import { lastDetection, minutesSinceLatest, missStreak } from '../lib/metrics/streaks'
+
+/**
+ * How each agent verdict reads.
+ *
+ * "Not ready" is kept distinct from "offline" on purpose. Both stop the run, but an untrusted
+ * agent is the one that fails silently — it accepts the task and never executes it — so a reader
+ * hunting a run of false misses needs to see that word rather than a generic failure.
+ */
+const AGENT_HEALTH: Record<AgentHealth, { label: string; tone: string; dot: string; state: ServiceState }> = {
+  ready: { label: 'Ready', tone: 'text-teal', dot: 'bg-teal', state: 'up' },
+  'not-ready': { label: 'Untrusted', tone: 'text-red', dot: 'bg-red', state: 'down' },
+  offline: { label: 'Offline', tone: 'text-red', dot: 'bg-red', state: 'down' },
+  unknown: { label: 'Unknown', tone: 'text-ink-muted', dot: 'bg-ink-faint', state: 'unknown' },
+}
 
 /**
  * Whether the experiment pipeline is working.
@@ -32,6 +47,8 @@ export default function PipelineHealth() {
   const socketUp = health.checked ? health.reachable : false
   const caldera = health.status?.caldera
   const wazuh = health.status?.wazuh
+  const calderaAgent = caldera?.agent ?? null
+  const agentState = agentHealth(calderaAgent)
 
   const reading = useMemo(
     () =>
@@ -43,6 +60,7 @@ export default function PipelineHealth() {
         staleMinutes,
         calderaAlive: health.status?.caldera?.alive,
         wazuhReachable: health.status?.wazuh?.reachable,
+        calderaAgent: health.status?.caldera?.agent,
       }),
     [trials, health.reachable, health.checked, health.status, socketUp, staleMinutes],
   )
@@ -71,6 +89,14 @@ export default function PipelineHealth() {
         : wazuh.reachable
           ? 'up'
           : 'down') as ServiceState,
+    },
+    {
+      name: 'Caldera agent',
+      state: AGENT_HEALTH[agentState].state,
+      // Overrides the generic "Reachable"/"Unreachable": an agent can answer and still be
+      // untrusted, and calling that unreachable would name the wrong fault.
+      label: AGENT_HEALTH[agentState].label,
+      detail: calderaAgent?.paw,
     },
   ]
 
@@ -128,6 +154,45 @@ export default function PipelineHealth() {
         >
           <StatusRow services={services} />
         </VerdictBanner>
+
+        {/* Pre-flight, above the notes: an unready agent invalidates every result that follows
+            it, so it belongs before anything that describes those results. */}
+        {calderaAgent && (
+          <Card title="Caldera agent">
+            <dl className="grid grid-cols-1 gap-x-8 gap-y-2.5 sm:grid-cols-2">
+              <AgentFact label="Agent" value={calderaAgent.paw} />
+              <AgentFact
+                label="Reachability"
+                value={(calderaAgent.status ?? 'unknown').toUpperCase()}
+                tone={calderaAgent.status === 'alive' ? 'text-teal' : 'text-red'}
+              />
+              <AgentFact
+                label="Trust"
+                value={calderaAgent.trusted ? 'TRUSTED' : 'UNTRUSTED'}
+                tone={calderaAgent.trusted ? 'text-teal' : 'text-red'}
+              />
+              <AgentFact
+                label="Last seen"
+                value={calderaAgent.last_seen ? formatClock(calderaAgent.last_seen) : '—'}
+              />
+              <AgentFact
+                label="Health"
+                value={AGENT_HEALTH[agentState].label.toUpperCase()}
+                tone={AGENT_HEALTH[agentState].tone}
+              />
+            </dl>
+
+            <p className="t-secondary mt-4 max-w-3xl text-ink-muted">
+              The most recently seen agent in the{' '}
+              <code className="t-technical">red</code> group — the one Caldera would task next.
+              A trial needs it to be <span className="text-ink">alive</span> <em>and</em>{' '}
+              <span className="text-ink">trusted</span>. An alive but untrusted agent accepts the
+              task and never runs it, so nothing executes and the trial records as a miss with no
+              alerts — the same shape as a real evasion, which is why it is checked here rather
+              than inferred from the results.
+            </p>
+          </Card>
+        )}
 
         {reading.insights.length > 0 && (
           <Card title="What needs attention">
@@ -229,8 +294,25 @@ export default function PipelineHealth() {
   )
 }
 
-function Diagnostic({ label, value }: { label: string; value: string }) {
+/** One field of the agent record, label left and value right. */
+function AgentFact({
+  label,
+  value,
+  tone = 'text-ink',
+}: {
+  label: string
+  value: string
+  tone?: string
+}) {
   return (
+    <div className="flex items-baseline justify-between gap-4 border-b border-border py-1.5">
+      <dt className="t-secondary text-ink-muted">{label}</dt>
+      <dd className={`t-technical ${tone}`}>{value}</dd>
+    </div>
+  )
+}
+
+function Diagnostic({ label, value }: { label: string; value: string }) {  return (
     <div className="flex items-baseline justify-between gap-4 border-b border-border py-1.5">
       <dt className="t-technical text-ink-muted">{label}</dt>
       <dd className={`t-technical ${value === 'ok' ? 'text-teal' : value === 'error' || value === 'unreachable' ? 'text-red' : 'text-ink-muted'}`}>

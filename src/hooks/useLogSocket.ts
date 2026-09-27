@@ -4,8 +4,14 @@ import { WS_URL } from '../config'
 import { toLogEntry } from '../lib/logs'
 import type { LogEntry } from '../lib/api/types'
 
-/** Ring-buffer size. Log history is intentionally not persisted across reloads. */
-const MAX_ENTRIES = 200
+/**
+ * Ring-buffer size. Log history is intentionally not persisted across reloads.
+ *
+ * Kept at least as large as the server's replay buffer (RECENT in api_server.py). If it were
+ * smaller, a reconnect would receive more frames than it keeps and could truncate away the
+ * current batch's BATCH_START, leaving the run looking like it never started.
+ */
+const MAX_ENTRIES = 500
 
 export type SocketStatus = 'connecting' | 'open' | 'closed'
 
@@ -52,6 +58,10 @@ export function useLogSocket(
       socket.onopen = () => {
         attempt = 0
         setSocketStatus('open')
+        // The server replays recent frames on connect, so anything held from a previous
+        // connection would double up. Clearing first makes a reconnect rebuild history rather
+        // than append a second copy of it.
+        setEntries([])
       }
 
       socket.onmessage = (event: MessageEvent) => {

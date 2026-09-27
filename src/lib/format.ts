@@ -9,27 +9,51 @@ function toDate(value: string | null | undefined): Date | null {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
-/** HH:MM:SS, for log lines. */
+/** h:MM:SS AM/PM, for log lines. */
 export function formatClock(value: string | null | undefined): string {
   const date = toDate(value)
   if (!date) return DASH
   return date.toLocaleTimeString(undefined, {
-    hour12: false,
-    hour: '2-digit',
+    hour12: true,
+    hour: 'numeric',
     minute: '2-digit',
     second: '2-digit',
   })
 }
 
 /** YYYY-MM-DD HH:MM:SS, for table rows. */
+/**
+ * YYYY-MM-DD h:MM:SS AM/PM, for table rows.
+ *
+ * Built from local date components rather than toLocaleString, which keeps the ISO-ish date
+ * prefix stable across locales. Trial timestamps arrive with a UTC offset, so these components
+ * are already the viewer's local time.
+ */
 export function formatDateTime(value: string | null | undefined): string {
   const date = toDate(value)
   if (!date) return DASH
   const pad = (n: number) => String(n).padStart(2, '0')
+  const hours = date.getHours()
+  const hour12 = hours % 12 === 0 ? 12 : hours % 12
+  const meridiem = hours < 12 ? 'AM' : 'PM'
   return (
     `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
-    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+    `${hour12}:${pad(date.getMinutes())}:${pad(date.getSeconds())} ${meridiem}`
   )
+}
+
+/**
+ * YYYY-MM-DD in the viewer's local calendar, for compact date cells.
+ *
+ * Built from local components, never by slicing the ISO string. Trial timestamps are UTC, so
+ * `"2026-09-27T20:00:00+00:00".slice(0, 10)` claims the 27th when it is already the 28th in IST —
+ * off by a day for every trial that lands after 18:30 local.
+ */
+export function formatDay(value: string | null | undefined): string {
+  const date = toDate(value)
+  if (!date) return DASH
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
 /** Normalises a 0..1 ratio to 0..100, tolerating a backend that already sends percentages. */
@@ -66,4 +90,23 @@ export function formatCount(value: number | null | undefined): string {
 export function pluralAlerts(count: number | null | undefined): string {
   if (count == null) return DASH
   return `${count} ${count === 1 ? 'alert' : 'alerts'}`
+}
+
+/**
+ * Copy for a WAITING countdown.
+ *
+ * `seconds` is the live remaining count, or null once it has run out — the backend only sends one
+ * WAITING frame, so the client owns the countdown and needs a state past zero.
+ *
+ * The past-zero copy names what the backend is doing now rather than going blank. An earlier
+ * version dropped the number and fell back to "Waiting…", which read as a hung trial: the reader
+ * saw the count stop and nothing replace it.
+ *
+ * "delay" is the agent stalling before it executes; "observe" is it waiting on Wazuh after.
+ */
+export function waitLabel(phase: 'delay' | 'observe', seconds: number | null): string {
+  if (phase === 'observe') {
+    return seconds === null ? 'Awaiting detection…' : `Observing for ${seconds}s…`
+  }
+  return seconds === null ? 'Executing…' : `Waiting ${seconds}s…`
 }

@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
-import { formatClock } from '../../lib/format'
-import { extractTrial } from '../../lib/logs'
-import type { LogEntry } from '../../lib/api/types'
+import { formatClock, waitLabel } from '../../lib/format'
+import { extractPlanned, extractTrial, extractWaiting } from '../../lib/logs'
+import type { LogEntry, Mode } from '../../lib/api/types'
 import { Badge } from '../ui/Badge'
 import { ResultInline } from './ResultBadge'
 
@@ -11,12 +11,28 @@ const TONE = {
   blue: { dot: 'bg-blue', label: 'text-blue', header: 'bg-blue-tint' },
 } as const
 
+/** The live countdown: which entry is counting, and what it should read. */
+export interface Counting {
+  id: number
+  text: string
+}
+
 interface LogStreamProps {
   title: string
   tone: 'red' | 'blue'
   entries: LogEntry[]
   emptyLabel: string
   height?: number
+  /**
+   * The entry whose countdown is running right now, with the label to draw for it.
+   *
+   * The countdown is rendered *on* the WAITING entry rather than as a separate row, so a trial
+   * reads as its own block of entries instead of gaining an extra one. Once the trial closes this
+   * goes null and the entry falls back to the wait it originally announced.
+   */
+  counting?: Counting | null
+  /** Which arm the batch is, so the plan line does not credit an agent that is not there. */
+  mode?: Mode | null
 }
 
 /**
@@ -25,8 +41,22 @@ interface LogStreamProps {
  * Follows the tail while the user is at the bottom, and stops the moment they scroll up so
  * reading a past event is not undone by the next frame. A "jump to latest" control brings the
  * pin back.
+ *
+ * Entries are grouped before rendering. A flat list of TRIAL_PLANNED / WAITING / TRIAL_COMPLETE
+ * frames gives no way to tell where one trial ends and the next begins, or which batch either
+ * belongs to — the structure is already in the frames, so it is drawn rather than implied.
  */
-export function LogStream({ title, tone, entries, emptyLabel, height = 340 }: LogStreamProps) {
+export function LogStream({
+  title,
+  tone,
+  entries,
+  emptyLabel,
+  // Tall by default: on the Live page this pair of columns is the thing the operator actually
+  // watches, and a short viewport turns it into a peek at the last few frames.
+  height = 500,
+  counting = null,
+  mode = null,
+}: LogStreamProps) {
   const theme = TONE[tone]
   const bodyRef = useRef<HTMLDivElement>(null)
   const pinnedRef = useRef(true)
@@ -73,7 +103,27 @@ export function LogStream({ title, tone, entries, emptyLabel, height = 340 }: Lo
           {entries.length === 0 ? (
             <p className="px-3 py-6 text-center text-[11.5px] text-ink-faint">{emptyLabel}</p>
           ) : (
-            entries.map((entry) => <LogLine key={entry.id} entry={entry} />)
+            groupRows(entries).map((row) => {
+              if (row.kind === 'batch') return <BatchDivider key={`b${row.entry.id}`} entry={row.entry} />
+              if (row.kind === 'trial') {
+                return (
+                  <TrialBlock
+                    key={`t${row.entries[0].id}`}
+                    group={row}
+                    counting={counting}
+                    mode={mode}
+                  />
+                )
+              }
+              return (
+                <LogLine
+                  key={row.entry.id}
+                  entry={row.entry}
+                  counting={counting?.id === row.entry.id ? counting.text : null}
+                  mode={mode}
+                />
+              )
+            })
           )}
         </div>
 
@@ -91,8 +141,160 @@ export function LogStream({ title, tone, entries, emptyLabel, height = 340 }: Lo
   )
 }
 
-function LogLine({ entry }: { entry: LogEntry }) {
-  const trial = useMemo(() => extractTrial(entry.extra), [entry.extra])
+interface TrialGroup {
+  kind: 'trial'
+  label: string
+  entries: LogEntry[]
+  complete: boolean
+}
+
+type Row = { kind: 'entry'; entry: LogEntry } | { kind: 'batch'; entry: LogEntry } | TrialGroup
+
+/**
+ * Folds the flat frame list into batch dividers and trial blocks.
+ *
+ * A trial runs from its TRIAL_PLANNED to its TRIAL_COMPLETE, and anything in between belongs to
+ * it — including both WAITING phases, which is why a trial can hold four entries and still be one
+ * unit. A trial with no closing frame is still emitted, so a run in progress is visible as such
+ * rather than vanishing until it finishes.
+ */
+function groupRows(entries: LogEntry[]): Row[] {
+  const rows: Row[] = []
+  let trial: LogEntry[] | null = null
+  let label = 'Trial'
+
+  const flush = (complete: boolean) => {
+    if (!trial) return
+    rows.push({ kind: 'trial', label, entries: trial, complete })
+    trial = null
+  }
+
+  for (const entry of entries) {
+    if (entry.step === 'TRIAL_PLANNED') {
+      flush(false)
+      const planned = extractPlanned(entry.extra)
+      label =
+        planned?.trial != null && planned.total != null
+          ? `Trial ${planned.trial} of ${planned.total}`
+          : 'Trial'
+      trial = [entry]
+      continue
+    }
+
+    if (trial) {
+      trial.push(entry)
+      if (entry.step === 'TRIAL_COMPLETE' || entry.step === 'ERROR') flush(true)
+      continue
+    }
+
+    if (entry.step === 'BATCH_START' || entry.step === 'BATCH_COMPLETE') {
+      rows.push({ kind: 'batch', entry })
+      continue
+    }
+
+    rows.push({ kind: 'entry', entry })
+  }
+
+  flush(false)
+  return rows
+}
+
+/** Separates one batch from the next, and states what it was. */
+function BatchDivider({ entry }: { entry: LogEntry }) {
+  const extra = (entry.extra ?? {}) as Record<string, unknown>
+  const mode = typeof extra.mode === 'string' ? extra.mode : null
+  const total =
+    typeof extra.num_trials === 'number'
+      ? `${extra.num_trials} trial${extra.num_trials === 1 ? '' : 's'}`
+      : null
+  const closing = entry.step === 'BATCH_COMPLETE'
+  const detail = [mode, total].filter(Boolean).join(' · ')
+
+  return (
+    <div className="flex items-center gap-2 border-b border-border bg-surface-3 px-3 py-1.5">
+      <span
+        className={`font-mono text-[10px] tracking-wider uppercase ${
+          closing ? 'text-ink-faint' : 'text-ink-muted'
+        }`}
+      >
+        {closing ? 'Batch complete' : 'Batch'}
+      </span>
+      <span className="truncate text-[11px] text-ink-muted">{detail || entry.message}</span>
+      <span className="tnum ml-auto shrink-0 font-mono text-[10px] text-ink-faint">
+        {formatClock(entry.timestamp)}
+      </span>
+    </div>
+  )
+}
+
+/** One trial: its plan, its waits, and its result, bracketed as a single unit. */
+function TrialBlock({
+  group,
+  counting,
+  mode,
+}: {
+  group: TrialGroup
+  counting: Counting | null
+  mode: Mode | null
+}) {
+  return (
+    <div className="border-b border-border last:border-b-0">
+      <div className="flex items-center gap-2 bg-surface-2 px-3 py-1">
+        <span className="font-mono text-[10px] tracking-wide text-ink-faint uppercase">
+          {group.label}
+        </span>
+        {!group.complete && (
+          <>
+            <span className="pulse h-1.5 w-1.5 rounded-full bg-red" aria-hidden="true" />
+            <span className="text-[10.5px] text-red">in progress</span>
+          </>
+        )}
+      </div>
+      <div className="border-l-2 border-red-line">
+        {group.entries.map((entry) => (
+          <LogLine
+            key={entry.id}
+            entry={entry}
+            counting={counting?.id === entry.id ? counting.text : null}
+            mode={mode}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Copy for the steps whose meaning is in `extra` rather than the backend's sentence.
+ *
+ * TRIAL_PLANNED and WAITING both carry structured payloads; naming the technique and the reason
+ * for the wait is more useful than the prose the backend also sends.
+ */
+function lineText(entry: LogEntry, mode: Mode | null): string {
+  if (entry.step === 'TRIAL_PLANNED') {
+    const planned = extractPlanned(entry.extra)
+    if (!planned) return entry.message
+    // The static baseline has no agent — it replays a fixed script. Crediting a choice to it
+    // would misdescribe the control arm of the experiment.
+    return mode === 'static' ? `Scripted: ${planned.technique}` : `Agent chose ${planned.technique}`
+  }
+  if (entry.step === 'WAITING') {
+    const waiting = extractWaiting(entry.extra)
+    if (waiting) return waitLabel(waiting.phase, waiting.seconds)
+  }
+  return entry.message
+}
+
+function LogLine({
+  entry,
+  counting,
+  mode,
+}: {
+  entry: LogEntry
+  counting: string | null
+  mode: Mode | null
+}) {
+  const trial = extractTrial(entry.extra)
 
   // A trial-complete frame carries the full result, which is far more useful than the
   // human-readable sentence the backend also sends.
@@ -115,15 +317,33 @@ function LogLine({ entry }: { entry: LogEntry }) {
     )
   }
 
+  // The plan is the agent narrating its own choice, so it reads at full contrast; the wait it
+  // then announces is machinery and stays quiet — except while it is the live countdown.
+  const emphasised = entry.step === 'TRIAL_PLANNED' || counting !== null
+
   return (
     <div className="flex gap-2 border-b border-border px-3 py-1.5 last:border-b-0 hover:bg-surface-2">
       <span className="tnum shrink-0 font-mono text-[10.5px] text-ink-faint">
         {formatClock(entry.timestamp)}
       </span>
       <div className="min-w-0">
-        <StepTag step={entry.step} />
-        <p className="mt-0.5 break-words font-mono text-[11.5px] leading-snug text-ink-muted">
-          {entry.message}
+        <span className="flex items-center gap-1.5">
+          {counting !== null && (
+            <span className="pulse h-1.5 w-1.5 shrink-0 rounded-full bg-red" aria-hidden="true" />
+          )}
+          <StepTag step={entry.step} />
+        </span>
+        <p
+          // role="timer" rather than a live region: this changes every second, and aria-live
+          // would read the whole count aloud once per tick.
+          {...(counting !== null
+            ? { role: 'timer', 'aria-label': 'Time until the agent continues' }
+            : {})}
+          className={`mt-0.5 break-words font-mono text-[11.5px] leading-snug ${
+            counting !== null ? 'text-red' : emphasised ? 'text-ink' : 'text-ink-muted'
+          }`}
+        >
+          {counting ?? lineText(entry, mode)}
         </p>
       </div>
     </div>

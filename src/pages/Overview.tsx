@@ -27,7 +27,7 @@ import {
   LegendItem,
 } from '../components/ui/ChartFrame'
 import { useTrialsData } from '../hooks/useTrialsData'
-import { formatCount, formatPct, formatSeconds, ratioToPercent } from '../lib/format'
+import { formatCount, formatDay, formatPct, formatSeconds, ratioToPercent } from '../lib/format'
 import { describeEps, overviewInsights } from '../lib/insights'
 import { computeEps } from '../lib/metrics/eps'
 import { aggregateTrials, rollupByTechnique, ttDs } from '../lib/metrics/tpr'
@@ -396,7 +396,7 @@ export default function Overview() {
                           {trial.detected ? formatSeconds(trial.time_to_detect) : '—'}
                         </span>
                         <span className="t-secondary w-24 text-right text-ink-faint">
-                          {trial.start_time.slice(0, 10)}
+                          {formatDay(trial.start_time)}
                         </span>
                       </li>
                     )
