@@ -10,6 +10,7 @@ export type IconName =
   | 'trials'
   | 'techniques'
   | 'compare'
+  | 'closedLoop'
   | 'blue'
   | 'gap'
   | 'health'
@@ -35,6 +36,7 @@ const PATHS: Record<IconName, string> = {
   trials: 'M2.5 4h11M2.5 8h11M2.5 12h7',
   techniques: 'M8 1.5 14.5 5 8 8.5 1.5 5zM1.5 8 8 11.5 14.5 8M1.5 11 8 14.5 14.5 11',
   compare: 'M5.5 2.5v11M10.5 2.5v11M1.5 5.5h4M10.5 10.5h4',
+  closedLoop: 'M2.5 8a5.5 5.5 0 0 1 9.4-3.9M13.5 8a5.5 5.5 0 0 1-9.4 3.9M11.9 1.5v2.6H9.3M4.1 14.5v-2.6h2.6',
   blue: 'M8 1.5 3 3.5v4.2c0 3.3 2.2 6.2 5 7.3 2.8-1.1 5-4 5-7.3V3.5z',
   gap: 'M12.7 3.8A6.5 6.5 0 1 0 8 14.5M8 1.5v3M8 8h.01',
   health: 'M1.5 8h3.5l1.5-3 2 6 1.5-3h4.5',

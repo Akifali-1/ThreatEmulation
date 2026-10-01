@@ -8,20 +8,29 @@ import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { ErrorState } from '../components/ui/EmptyState'
 import { Field, Input, ToggleGroup } from '../components/ui/Field'
+import { Icon } from '../components/ui/Icon'
 import { useHealth } from '../context/HealthContext'
 import { useLogStream } from '../context/SocketContext'
 import { useLiveTrial } from '../hooks/useLiveTrial'
 import { useNow } from '../hooks/useNow'
 import { useTrialsData } from '../hooks/useTrialsData'
-import { describeError, runBatch, runBlueAnalysis } from '../lib/api'
+import { describeError, runBatch, runBlueAnalysis, runClosedLoop } from '../lib/api'
 import { formatClock, formatSeconds, waitLabel } from '../lib/format'
 import { agentHealth } from '../lib/insights'
 import { describeTechnique } from '../lib/techniques'
-import type { CalderaAgent, Mode } from '../lib/api/types'
+import type { CalderaAgent, RunMode } from '../lib/api/types'
 
 const MIN_TRIALS = 1
 const MAX_TRIALS = 30
 const DEFAULT_TRIALS = '5'
+/**
+ * Closed-Loop counts cycles rather than trials, and opens at one.
+ *
+ * A cycle is slower and heavier than a trial — it runs the red attack, waits on detection, then
+ * lets Blue propose, deploy and validate a rule before deciding to keep or roll it back — so one
+ * is the safe opening value rather than the five the trial modes default to.
+ */
+const DEFAULT_CYCLES = '1'
 
 /**
  * Idle pages need a clock only for relative timestamps; a live run needs per-second motion for
@@ -150,7 +159,7 @@ export default function LiveOperations() {
   const agentic = useTrialsData('agentic')
   const staticData = useTrialsData('static')
 
-  const [batchMode, setBatchMode] = useState<Mode>('agentic')
+  const [batchMode, setBatchMode] = useState<RunMode>('agentic')
   const [trialsInput, setTrialsInput] = useState(DEFAULT_TRIALS)
   const [requestedTrials, setRequestedTrials] = useState<number | null>(null)
   const [startedAtIndex, setStartedAtIndex] = useState<number | null>(null)
@@ -160,6 +169,10 @@ export default function LiveOperations() {
 
   const parsed = Number.parseInt(trialsInput, 10)
   const valid = Number.isFinite(parsed) && parsed >= MIN_TRIALS && parsed <= MAX_TRIALS
+
+  // Closed-Loop reuses the same 1–30 control but counts cycles, so the labels follow the mode.
+  const closedLoop = batchMode === 'closed_loop'
+  const unit = closedLoop ? 'cycles' : 'trials'
 
   const readiness = runReadiness(
     health.checked,
@@ -213,7 +226,9 @@ export default function LiveOperations() {
     setStarting(true)
     setError(null)
     try {
-      await runBatch(batchMode, parsed)
+      // Closed-Loop has its own route; the other two share the batch route.
+      if (batchMode === 'closed_loop') await runClosedLoop(parsed)
+      else await runBatch(batchMode, parsed)
       setRequestedTrials(parsed)
       // Anchor the run to the current end of the buffer so a previous batch's BATCH_COMPLETE
       // cannot make a freshly started run look finished.
@@ -223,6 +238,14 @@ export default function LiveOperations() {
     } finally {
       setStarting(false)
     }
+  }
+
+  // Switching into Closed-Loop drops the count to its own safe default, and switching back
+  // restores the trial default rather than carrying a cycles-shaped number into a trial run.
+  const changeMode = (next: RunMode) => {
+    setBatchMode(next)
+    if (next === 'closed_loop') setTrialsInput(DEFAULT_CYCLES)
+    else if (trialsInput === DEFAULT_CYCLES) setTrialsInput(DEFAULT_TRIALS)
   }
 
   const startBlueAnalysis = async () => {
@@ -253,6 +276,33 @@ export default function LiveOperations() {
   )
   const latestSystem = system.length > 0 ? system[system.length - 1] : null
 
+  /*
+   * Closed-Loop folds its own frames rather than a trial result: a cycle reports through
+   * CYCLE_START and RED_RESULT, which carry a technique and a detection but no trial object. Kept
+   * local to the page so the shared trial fold is untouched for the static and agentic modes.
+   */
+  const closedLoopFacts = useMemo(() => {
+    const scoped =
+      startedAtIndex === null ? socket.entries : socket.entries.slice(startedAtIndex)
+    let technique: string | null = null
+    let completed = 0
+    let detected: boolean | null = null
+    let ttd: number | null = null
+
+    for (const entry of scoped) {
+      const extra = (entry.extra ?? {}) as Record<string, unknown>
+      if (entry.step === 'CYCLE_START' && typeof extra.technique === 'string') {
+        technique = extra.technique
+      }
+      if (entry.step === 'RED_RESULT') {
+        completed += 1
+        detected = typeof extra.detected === 'boolean' ? extra.detected : null
+        ttd = typeof extra.ttd === 'number' ? extra.ttd : null
+      }
+    }
+    return { technique, completed, detected, ttd }
+  }, [socket.entries, startedAtIndex])
+
   // The plan is the freshest word on what the agent is doing — TRIAL_PLANNED lands well before
   // the trial resolves, so this tracks the technique in flight rather than the last finished one.
   const techniqueName = live.planned?.technique ?? live.latestTrial?.technique ?? null
@@ -275,7 +325,10 @@ export default function LiveOperations() {
    * way the component's own `requestedTrials` would.
    */
   const plannedTotal = live.planned?.total ?? requestedTrials
-  const trialProgress = plannedTotal ? `${live.completed} of ${plannedTotal} trials completed` : null
+  const liveCompleted = closedLoop ? closedLoopFacts.completed : live.completed
+  const trialProgress = plannedTotal
+    ? `${liveCompleted} of ${plannedTotal} ${unit} completed`
+    : null
 
   return (
     <>
@@ -288,19 +341,20 @@ export default function LiveOperations() {
         <Card title="Run an evaluation">
           <div className="flex flex-wrap items-end gap-x-8 gap-y-4">
             <Field label="Mode">
-              <ToggleGroup<Mode>
+              <ToggleGroup<RunMode>
                 ariaLabel="Batch run mode"
                 value={batchMode}
                 disabled={running}
-                onChange={setBatchMode}
+                onChange={changeMode}
                 options={[
                   { value: 'agentic', label: 'Agentic', activeClassName: 'text-red' },
                   { value: 'static', label: 'Static' },
+                  { value: 'closed_loop', label: 'Closed-Loop', activeClassName: 'text-blue' },
                 ]}
               />
             </Field>
 
-            <Field label="Trials" hint={`${MIN_TRIALS}–${MAX_TRIALS}`}>
+            <Field label={closedLoop ? 'Cycles' : 'Trials'} hint={`${MIN_TRIALS}–${MAX_TRIALS}`}>
               <Input
                 type="number"
                 min={MIN_TRIALS}
@@ -313,7 +367,7 @@ export default function LiveOperations() {
                 onKeyDown={(event) => {
                   if (event.key === 'Enter') void startBatch()
                 }}
-                aria-label="Number of trials"
+                aria-label={closedLoop ? 'Number of cycles' : 'Number of trials'}
                 className="w-20"
               />
             </Field>
@@ -330,6 +384,17 @@ export default function LiveOperations() {
               <Button onClick={() => void startBlueAnalysis()} loading={blueRunning} disabled={blueRunning}>
                 Analyse detection gaps
               </Button>
+              {/*
+                The results outlive the run, so this is a route rather than a control — styled as a
+                secondary button to sit with them without reading as an action on the current run.
+              */}
+              <Link
+                to="/closed-loop"
+                className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded border border-border-strong bg-surface px-3 text-[12px] font-medium text-ink transition-colors hover:bg-surface-2"
+              >
+                View Closed-Loop Results
+                <Icon name="chevronRight" size={13} />
+              </Link>
             </div>
           </div>
 
@@ -364,7 +429,7 @@ export default function LiveOperations() {
 
           {!valid && (
             <p className="t-secondary mt-3 text-amber">
-              Enter a whole number of trials between {MIN_TRIALS} and {MAX_TRIALS}.
+              Enter a whole number of {unit} between {MIN_TRIALS} and {MAX_TRIALS}.
             </p>
           )}
         </Card>
@@ -384,6 +449,50 @@ export default function LiveOperations() {
             <p className="t-body text-ink-muted">
               No run in progress. Start a batch above to stream Red Agent activity here.
             </p>
+          ) : closedLoop ? (
+            <dl className="grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-4">
+              <RunFact
+                label="Progress"
+                value={
+                  plannedTotal
+                    ? `${Math.min(closedLoopFacts.completed, plannedTotal)} of ${plannedTotal}`
+                    : `${closedLoopFacts.completed}`
+                }
+                sub="cycles completed"
+              />
+              <RunFact
+                label="Latest technique"
+                value={closedLoopFacts.technique ?? '—'}
+                sub={
+                  closedLoopFacts.technique
+                    ? describeTechnique(closedLoopFacts.technique).name
+                    : undefined
+                }
+              />
+              <RunFact
+                label="Elapsed"
+                value={elapsed === null ? '—' : formatSeconds(elapsed, 0)}
+                sub={live.startedAt !== null ? 'since batch start' : 'waiting for start event'}
+              />
+              <RunFact
+                label="Latest result"
+                value={
+                  closedLoopFacts.detected === null
+                    ? 'Waiting…'
+                    : closedLoopFacts.detected
+                      ? formatSeconds(closedLoopFacts.ttd)
+                      : 'Not detected'
+                }
+                sub={closedLoopFacts.detected === null ? 'no cycles finished yet' : undefined}
+                tone={
+                  closedLoopFacts.detected === null
+                    ? 'muted'
+                    : closedLoopFacts.detected
+                      ? 'detected'
+                      : 'miss'
+                }
+              />
+            </dl>
           ) : (
             <dl className="grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-4">
               <RunFact

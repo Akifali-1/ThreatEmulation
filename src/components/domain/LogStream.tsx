@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 
 import { formatClock, waitLabel } from '../../lib/format'
 import { extractPlanned, extractTrial, extractWaiting } from '../../lib/logs'
-import type { LogEntry, Mode } from '../../lib/api/types'
+import type { LogEntry, RunMode } from '../../lib/api/types'
 import { Badge } from '../ui/Badge'
+import { Disclosure } from '../ui/Disclosure'
 import { ResultInline } from './ResultBadge'
+import { RuleXml } from './RuleXml'
 
 const TONE = {
   red: { dot: 'bg-red', label: 'text-red', header: 'bg-red-tint' },
@@ -32,7 +34,7 @@ interface LogStreamProps {
    */
   counting?: Counting | null
   /** Which arm the batch is, so the plan line does not credit an agent that is not there. */
-  mode?: Mode | null
+  mode?: RunMode | null
 }
 
 /**
@@ -235,7 +237,7 @@ function TrialBlock({
 }: {
   group: TrialGroup
   counting: Counting | null
-  mode: Mode | null
+  mode: RunMode | null
 }) {
   return (
     <div className="border-b border-border last:border-b-0">
@@ -270,7 +272,7 @@ function TrialBlock({
  * TRIAL_PLANNED and WAITING both carry structured payloads; naming the technique and the reason
  * for the wait is more useful than the prose the backend also sends.
  */
-function lineText(entry: LogEntry, mode: Mode | null): string {
+function lineText(entry: LogEntry, mode: RunMode | null): string {
   if (entry.step === 'TRIAL_PLANNED') {
     const planned = extractPlanned(entry.extra)
     if (!planned) return entry.message
@@ -282,7 +284,39 @@ function lineText(entry: LogEntry, mode: Mode | null): string {
     const waiting = extractWaiting(entry.extra)
     if (waiting) return waitLabel(waiting.phase, waiting.seconds)
   }
+  // Closed-loop steps whose meaning is in `extra` rather than the backend's sentence.
+  if (entry.step === 'CYCLE_START') {
+    const technique = extraString(entry, 'technique')
+    return technique ? `Red attacking ${technique}` : entry.message
+  }
+  if (entry.step === 'RED_RESULT') {
+    const detected = extraField(entry, 'detected')
+    if (typeof detected === 'boolean') return detected ? 'Detected' : 'Not detected'
+  }
+  if (entry.step === 'NO_GAP') return 'No gap, Blue not needed'
+  if (entry.step === 'GAP_FOUND') return 'Gap found, Blue investigating'
+  if (entry.step === 'DEPLOY') {
+    const ruleId = extraString(entry, 'rule_id')
+    return ruleId ? `Deployed rule ${ruleId}` : 'Rule deployed'
+  }
   return entry.message
+}
+
+/** Reads one field off a frame's `extra`, tolerating a missing or non-object payload. */
+function extraField(entry: LogEntry, key: string): unknown {
+  const extra = entry.extra
+  if (!extra || typeof extra !== 'object') return undefined
+  return (extra as Record<string, unknown>)[key]
+}
+
+function extraString(entry: LogEntry, key: string): string | null {
+  const value = extraField(entry, key)
+  return typeof value === 'string' && value !== '' ? value : null
+}
+
+/** Clips a long value so a nested payload cannot push the rest of the feed off screen. */
+function truncate(value: string, max: number): string {
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value
 }
 
 function LogLine({
@@ -292,7 +326,7 @@ function LogLine({
 }: {
   entry: LogEntry
   counting: string | null
-  mode: Mode | null
+  mode: RunMode | null
 }) {
   const trial = extractTrial(entry.extra)
 
@@ -317,9 +351,67 @@ function LogLine({
     )
   }
 
+  // KEEP / ROLLBACK are the verdict on a deployed rule: the whole meaning is the word, so it is
+  // drawn as a badge rather than run through the generic line renderer.
+  if (entry.step === 'KEEP' || entry.step === 'ROLLBACK') {
+    const kept = entry.step === 'KEEP'
+    return (
+      <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 last:border-b-0 hover:bg-surface-2">
+        <span className="tnum shrink-0 font-mono text-[10.5px] text-ink-faint">
+          {formatClock(entry.timestamp)}
+        </span>
+        <StepTag step={entry.step} />
+        <Badge tone={kept ? 'detected' : 'red'} dot>
+          {kept ? 'Kept' : 'Rolled back'}
+        </Badge>
+      </div>
+    )
+  }
+
+  // Blue's evidence: the source is context and stays on the sub-line, the excerpt is the point.
+  if (entry.step === 'EVIDENCE') {
+    const text = extraString(entry, 'text') ?? entry.message
+    const source = extraString(entry, 'source') ?? 'Source not provided.'
+    return (
+      <div className="border-b border-border px-3 py-1.5 last:border-b-0 hover:bg-surface-2">
+        <div className="flex items-center gap-2">
+          <span className="tnum font-mono text-[10.5px] text-ink-faint">
+            {formatClock(entry.timestamp)}
+          </span>
+          <StepTag step={entry.step} />
+        </div>
+        <p className="mt-0.5 break-words font-mono text-[11.5px] leading-snug text-ink">
+          {truncate(text, 160)}
+        </p>
+        <p className="mt-0.5 text-[10.5px] text-ink-faint">{source}</p>
+      </div>
+    )
+  }
+
+  // The proposed rule is code, not prose — collapsed, preformatted, and left unparsed rather than
+  // run through any Markdown rendering.
+  if (entry.step === 'RULE_PROPOSED') {
+    const rule = extraString(entry, 'llm_output') ?? entry.message
+    return (
+      <div className="border-b border-border px-3 py-2 last:border-b-0 hover:bg-surface-2">
+        <div className="flex items-center gap-2">
+          <span className="tnum font-mono text-[10.5px] text-ink-faint">
+            {formatClock(entry.timestamp)}
+          </span>
+          <StepTag step={entry.step} />
+        </div>
+        <p className="mt-0.5 text-[11.5px] text-ink-muted">Proposed rule</p>
+        <Disclosure summary="View proposed pattern" className="mt-1">
+          <RuleXml xml={rule} />
+        </Disclosure>
+      </div>
+    )
+  }
+
   // The plan is the agent narrating its own choice, so it reads at full contrast; the wait it
   // then announces is machinery and stays quiet — except while it is the live countdown.
-  const emphasised = entry.step === 'TRIAL_PLANNED' || counting !== null
+  const emphasised =
+    entry.step === 'TRIAL_PLANNED' || entry.step === 'CYCLE_START' || counting !== null
 
   return (
     <div className="flex gap-2 border-b border-border px-3 py-1.5 last:border-b-0 hover:bg-surface-2">

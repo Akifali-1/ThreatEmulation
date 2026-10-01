@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 
-import type { LogEntry, Mode, Trial } from '../lib/api/types'
+import type { LogEntry, RunMode, Trial } from '../lib/api/types'
 import {
   extractPlanned,
   extractTrial,
@@ -18,13 +18,13 @@ import {
  * rather than closing one, and requiring an open trial is what lets an out-of-order WAITING be
  * told apart from a new one.
  */
-const CLOSES_TRIAL = new Set(['TRIAL_COMPLETE', 'ERROR', 'BATCH_START', 'BATCH_COMPLETE'])
+const CLOSES_TRIAL = new Set(['TRIAL_COMPLETE', 'RED_RESULT', 'ERROR', 'BATCH_START', 'BATCH_COMPLETE'])
 
 export interface LiveTrial {
   /** True while the most recent batch boundary in scope is a start. */
   running: boolean
   /** Which arm the current batch is: only "agentic" runs have an agent behind the plan. */
-  mode: Mode | null
+  mode: RunMode | null
   /** Arrival time of the current batch's start, or null when nothing has started. */
   startedAt: number | null
   completed: number
@@ -61,7 +61,7 @@ export function useLiveTrial(entries: LogEntry[], fromIndex: number | null): Liv
 
     let boundary: LogEntry | null = null
     let startedAt: number | null = null
-    let mode: Mode | null = null
+    let mode: RunMode | null = null
     let planned: PlannedInfo | null = null
     let waiting: WaitingInfo | null = null
     let waitingEndsAt = 0
@@ -93,6 +93,19 @@ export function useLiveTrial(entries: LogEntry[], fromIndex: number | null): Liv
           planned = parsed
           plannedIdx = i
         }
+      }
+
+      /*
+       * A closed-loop cycle opens like a trial: it names a technique and is followed by a WAITING
+       * frame the client has to tick. Treating CYCLE_START as the opener is what lets the shared
+       * countdown machinery run for closed-loop without a TRIAL_PLANNED frame that never comes.
+       */
+      if (entry.step === 'CYCLE_START') {
+        const extra = (entry.extra ?? {}) as Record<string, unknown>
+        if (typeof extra.technique === 'string' && extra.technique !== '') {
+          planned = { technique: extra.technique, delay: null, trial: null, total: null }
+        }
+        plannedIdx = i
       }
 
       if (entry.step === 'WAITING') {

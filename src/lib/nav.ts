@@ -60,6 +60,12 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: 'compare',
         description: 'Agentic against the static baseline',
       },
+      {
+        to: '/closed-loop',
+        label: 'Closed-Loop Results',
+        icon: 'closedLoop',
+        description: 'Every closed-loop cycle and the rule it produced',
+      },
     ],
   },
   {

@@ -15,6 +15,7 @@ const Trials = lazy(() => import('./pages/Trials'))
 const Techniques = lazy(() => import('./pages/Techniques'))
 const TechniqueDetail = lazy(() => import('./pages/TechniqueDetail'))
 const Compare = lazy(() => import('./pages/Compare'))
+const ClosedLoopResults = lazy(() => import('./pages/ClosedLoopResults'))
 const DetectionGaps = lazy(() => import('./pages/DetectionGaps'))
 const BlueAgent = lazy(() => import('./pages/BlueAgent'))
 const PipelineHealth = lazy(() => import('./pages/PipelineHealth'))
@@ -43,6 +44,7 @@ export const router = createBrowserRouter([
       { path: 'techniques', element: <Techniques /> },
       { path: 'techniques/:technique', element: <TechniqueDetail /> },
       { path: 'compare', element: <Compare /> },
+      { path: 'closed-loop', element: <ClosedLoopResults /> },
       { path: 'gaps', element: <DetectionGaps /> },
       { path: 'blue', element: <BlueAgent /> },
       { path: 'health', element: <PipelineHealth /> },

@@ -3,6 +3,16 @@
 export type Mode = 'agentic' | 'static'
 
 /**
+ * Every arm the Live Operations run control can start.
+ *
+ * `closed_loop` is deliberately *not* part of `Mode`: the trial datasets, their endpoints and the
+ * filters built on them are keyed by `agentic`/`static` only, and widening `Mode` would push a
+ * third case through every one of them. Closed-Loop has its own run route and its own results
+ * endpoint, so it gets its own key alongside the two arms rather than inside them.
+ */
+export type RunMode = Mode | 'closed_loop'
+
+/**
  * One red-agent trial. Static-mode trials omit `reasoning` and `delay_used` entirely, and
  * carry a `mode` field that agentic trials don't — so every optional field here is genuinely
  * optional and consumers must tolerate its absence.
@@ -74,6 +84,25 @@ export type LogStep =
   | 'BATCH_START'
   | 'BATCH_COMPLETE'
   | 'ERROR'
+  /* Closed-Loop mode. One cycle is CYCLE_START → WAITING → RED_RESULT → (blue response). */
+  /** A new cycle opens; `extra.technique` names the attack. */
+  | 'CYCLE_START'
+  /** Red result for the cycle; `extra.detected` and `extra.ttd`. */
+  | 'RED_RESULT'
+  /** Blue found nothing to do this cycle. */
+  | 'NO_GAP'
+  /** Blue found a detection gap and is investigating. */
+  | 'GAP_FOUND'
+  /** Evidence behind the gap; `extra.text` (and optional `extra.source`). */
+  | 'EVIDENCE'
+  /** The rule the LLM proposed; `extra.llm_output`. */
+  | 'RULE_PROPOSED'
+  /** The proposed rule was deployed; `extra.rule_id`. */
+  | 'DEPLOY'
+  /** The deployed rule was kept after validation. */
+  | 'KEEP'
+  /** The deployed rule was rolled back after validation. */
+  | 'ROLLBACK'
 
 /** One frame off /ws/logs. The shape of `extra` varies by step. */
 export interface LogMessage {
@@ -106,6 +135,37 @@ export interface RunBatchResponse {
   status: string
   mode: Mode
   num_trials: number
+}
+
+/** POST /api/run-closed-loop. Cycles, not trials — it is the closed-loop control's own unit. */
+export interface RunClosedLoopResponse {
+  status: string
+  cycles: number
+}
+
+/** How Blue resolved a cycle. Unknown values fall through to a neutral rendering. */
+export type BlueAction = 'keep' | 'rollback' | 'none_needed' | 'deploy_failed'
+
+/**
+ * One closed-loop cycle's recorded outcome, from GET /api/closed-loop-results.
+ *
+ * The baseline is the pre-fix red result; the validation is the same technique re-run after the
+ * rule was deployed. `blue_action` says what Blue did about the gap it found.
+ */
+export interface ClosedLoopResult {
+  cycle_id: string | number
+  technique: string
+  mitre_id?: string | null
+  baseline_detected: boolean | null
+  baseline_ttd?: number | null
+  blue_action: BlueAction | string
+  validation_detected: boolean | null
+  validation_ttd?: number | null
+  rule_id?: string | null
+}
+
+export interface ClosedLoopResultsResponse {
+  results: ClosedLoopResult[]
 }
 
 /**

@@ -1,4 +1,4 @@
-import type { LogEntry, Mode, Trial } from './api/types'
+import type { LogEntry, RunMode, Trial } from './api/types'
 
 function looksLikeTrial(value: unknown): value is Trial {
   if (!value || typeof value !== 'object') return false
@@ -125,10 +125,14 @@ export function extractWaiting(extra: unknown): WaitingInfo | null {
  * in the sentence ("Starting 1 trials in static mode") — so the text is checked as a fallback.
  * Null means genuinely unknown, and callers keep the agentic wording they used before.
  */
-export function readBatchMode(entry: LogEntry): Mode | null {
+export function readBatchMode(entry: LogEntry): RunMode | null {
   const extra = (entry.extra ?? {}) as Record<string, unknown>
-  if (extra.mode === 'agentic' || extra.mode === 'static') return extra.mode
+  if (extra.mode === 'agentic' || extra.mode === 'static' || extra.mode === 'closed_loop') {
+    return extra.mode
+  }
 
-  const match = /\b(agentic|static)\b/i.exec(entry.message)
-  return match ? (match[1].toLowerCase() as Mode) : null
+  const match = /\b(agentic|static|closed[-_ ]?loop)\b/i.exec(entry.message)
+  if (!match) return null
+  const token = match[1].toLowerCase().replace(/[- ]/g, '_')
+  return token === 'closed_loop' ? 'closed_loop' : (token as RunMode)
 }

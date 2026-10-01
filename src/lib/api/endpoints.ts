@@ -3,9 +3,12 @@ import { request, requestArray } from './client'
 import type {
   BlueAnalysisResponse,
   BlueProposal,
+  ClosedLoopResult,
+  ClosedLoopResultsResponse,
   Mode,
   ProposalStatus,
   RunBatchResponse,
+  RunClosedLoopResponse,
   StatusResponse,
   TechniqueSummary,
   Trial,
@@ -53,6 +56,32 @@ export function runBatch(mode: Mode, numTrials: number): Promise<RunBatchRespons
 
 export function runBlueAnalysis(): Promise<BlueAnalysisResponse> {
   return request<BlueAnalysisResponse>('/api/run-blue-analysis', { method: 'POST' })
+}
+
+/**
+ * POST /api/run-closed-loop.
+ *
+ * Cycles are sent under the backend's `num_trials` key — the route reuses the batch body shape,
+ * but the unit it counts is a cycle, not a trial.
+ */
+export function runClosedLoop(numCycles: number): Promise<RunClosedLoopResponse> {
+  return request<RunClosedLoopResponse>('/api/run-closed-loop', {
+    method: 'POST',
+    body: JSON.stringify({ num_trials: numCycles }),
+  })
+}
+
+/**
+ * GET /api/closed-loop-results.
+ *
+ * The endpoint wraps the rows in `{ results: [...] }`; the response is unwrapped here so callers
+ * get the list, and a missing or non-array `results` degrades to an empty list rather than a
+ * crash deep inside the table.
+ */
+export function getClosedLoopResults(signal?: AbortSignal): Promise<ClosedLoopResult[]> {
+  return request<ClosedLoopResultsResponse>('/api/closed-loop-results', { signal }).then((body) =>
+    Array.isArray(body?.results) ? body.results : [],
+  )
 }
 
 /**
